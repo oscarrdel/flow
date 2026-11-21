@@ -1,32 +1,30 @@
 package com.rainyworks.flow.feature.home
 
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.compose.LifecycleResumeEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.rainyworks.flow.feature.home.ui.HomeContent
 
 @Composable
-fun HomeScreen(onCreateProject: () -> Unit, modifier: Modifier = Modifier) {
-    Scaffold(
-        modifier = modifier.fillMaxSize(),
-        floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = onCreateProject,
-                icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
-                text = { Text("Nuevo proyecto") },
-            )
-        },
-    ) { padding ->
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("Flow", style = MaterialTheme.typography.titleLarge)
-        }
+fun HomeScreen(
+    viewModel: HomeViewModel,
+    onOpenProject: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val open by rememberUpdatedState(onOpenProject)
+
+    LaunchedEffect(viewModel) {
+        viewModel.openProject.collect { open(it) }
     }
+    LifecycleResumeEffect(viewModel) {
+        viewModel.refreshCacheSize()
+        onPauseOrDispose { }
+    }
+
+    HomeContent(state = state, onAction = viewModel::onAction, modifier = modifier)
 }

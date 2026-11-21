@@ -1,0 +1,767 @@
+package com.rainyworks.flow.feature.editor.ui
+
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Redo
+import androidx.compose.material.icons.automirrored.rounded.Undo
+import androidx.compose.material.icons.rounded.AspectRatio
+import androidx.compose.material.icons.rounded.BookmarkAdd
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Fullscreen
+import androidx.compose.material.icons.rounded.FullscreenExit
+import androidx.compose.material.icons.rounded.IosShare
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Text
+import androidx.compose.material3.VerticalDivider
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Canvas as ComposeCanvas
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+import com.rainyworks.flow.core.designsystem.theme.FlowColors
+import com.rainyworks.flow.core.designsystem.theme.FlowTheme
+import com.rainyworks.flow.core.designsystem.theme.FlowTypography
+import com.rainyworks.flow.core.designsystem.theme.TimecodeStyle
+import com.rainyworks.flow.core.model.AspectRatio
+import com.rainyworks.flow.core.model.Canvas
+import com.rainyworks.flow.core.model.CanvasBackground
+import com.rainyworks.flow.core.model.Clip
+import com.rainyworks.flow.core.model.ClipKind
+import com.rainyworks.flow.core.model.Marker
+import com.rainyworks.flow.core.model.MediaRef
+import com.rainyworks.flow.core.model.MediaType
+import com.rainyworks.flow.core.model.Project
+import com.rainyworks.flow.core.model.Timecode
+import com.rainyworks.flow.core.model.Track
+import com.rainyworks.flow.core.model.TrackKind
+import com.rainyworks.flow.feature.editor.EditorAction
+import com.rainyworks.flow.feature.editor.EditorSheet
+import com.rainyworks.flow.feature.editor.EditorUiState
+import com.rainyworks.flow.feature.editor.TimelineMediaSource
+import kotlin.math.abs
+import kotlin.math.sin
+
+/**
+ * Stateless root UI for the video editor screen.
+ *
+ * Adapts between portrait (top preview + lower timeline/toolbar) and landscape
+ * (left larger preview + right wide timeline/toolbar), while keeping anchored bottom
+ * panels strictly inside the control area so the preview is never covered.
+ */
+@Composable
+fun EditorContent(
+    state: EditorUiState,
+    onAction: (EditorAction) -> Unit,
+    mediaSource: TimelineMediaSource,
+    preview: @Composable (Modifier) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val aspectRatio = state.project?.canvas?.aspectRatio ?: AspectRatio.R9_16
+    val canvasBackground = state.project?.canvas?.background ?: CanvasBackground.Solid(0xFF000000)
+    val totalDurationUs = state.project?.durationUs ?: 0L
+
+    if (state.fullscreenPreview) {
+        Column(
+            modifier = modifier
+                .fillMaxSize()
+                .background(FlowColors.Black),
+        ) {
+            EditorPreviewArea(
+                aspectRatio = aspectRatio,
+                background = canvasBackground,
+                loading = state.loading && state.project == null,
+                onDoubleTap = { onAction(EditorAction.TogglePlay) },
+                preview = preview,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+            )
+            EditorPlaybackBar(
+                playheadUs = state.playheadUs,
+                durationUs = totalDurationUs,
+                fps = state.fps,
+                isPlaying = state.isPlaying,
+                isFullscreen = true,
+                onAction = onAction,
+            )
+        }
+        return
+    }
+
+    BoxWithConstraints(
+        modifier = modifier
+            .fillMaxSize()
+            .background(FlowColors.Carbon),
+    ) {
+        val isLandscape = maxWidth > maxHeight
+
+        Column(modifier = Modifier.fillMaxSize()) {
+            EditorTopBar(
+                aspectRatio = aspectRatio,
+                canUndo = state.canUndo,
+                canRedo = state.canRedo,
+                onAction = onAction,
+            )
+
+            HorizontalDivider(color = FlowColors.Steel, thickness = 1.dp)
+
+            if (isLandscape) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                ) {
+                    // Left column: large preview + playback controls
+                    Column(
+                        modifier = Modifier
+                            .weight(0.44f)
+                            .fillMaxHeight()
+                            .background(FlowColors.Black),
+                    ) {
+                        EditorPreviewArea(
+                            aspectRatio = aspectRatio,
+                            background = canvasBackground,
+                            loading = state.loading && state.project == null,
+                            onDoubleTap = { onAction(EditorAction.TogglePlay) },
+                            preview = preview,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                        )
+                        EditorPlaybackBar(
+                            playheadUs = state.playheadUs,
+                            durationUs = totalDurationUs,
+                            fps = state.fps,
+                            isPlaying = state.isPlaying,
+                            isFullscreen = false,
+                            onAction = onAction,
+                        )
+                    }
+
+                    VerticalDivider(color = FlowColors.Steel, thickness = 1.dp)
+
+                    // Right column: wide timeline + contextual toolbar or anchored sheet
+                    Column(
+                        modifier = Modifier
+                            .weight(0.56f)
+                            .fillMaxHeight(),
+                    ) {
+                        EditorTimeline(
+                            project = state.project,
+                            playheadUs = state.playheadUs,
+                            isPlaying = state.isPlaying,
+                            selectedClipId = state.selectedClipId,
+                            pixelsPerSecond = state.pixelsPerSecond,
+                            onAction = onAction,
+                            mediaSource = mediaSource,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                        )
+
+                        HorizontalDivider(color = FlowColors.Steel, thickness = 1.dp)
+
+                        val activeSheet = state.activeSheet
+                        if (activeSheet != null) {
+                            EditorActiveSheet(
+                                sheet = activeSheet,
+                                state = state,
+                                onAction = onAction,
+                            )
+                        } else {
+                            EditorBottomToolbar(
+                                selectedClipId = state.selectedClipId,
+                                onAction = onAction,
+                            )
+                        }
+                    }
+                }
+            } else {
+                // Portrait layout: upper preview area + playback bar, lower timeline + toolbar/sheet
+                EditorPreviewArea(
+                    aspectRatio = aspectRatio,
+                    background = canvasBackground,
+                    loading = state.loading && state.project == null,
+                    onDoubleTap = { onAction(EditorAction.TogglePlay) },
+                    preview = preview,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(0.45f),
+                )
+
+                EditorPlaybackBar(
+                    playheadUs = state.playheadUs,
+                    durationUs = totalDurationUs,
+                    fps = state.fps,
+                    isPlaying = state.isPlaying,
+                    isFullscreen = false,
+                    onAction = onAction,
+                )
+
+                HorizontalDivider(color = FlowColors.Steel, thickness = 1.dp)
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(0.55f),
+                ) {
+                    EditorTimeline(
+                        project = state.project,
+                        playheadUs = state.playheadUs,
+                        isPlaying = state.isPlaying,
+                        selectedClipId = state.selectedClipId,
+                        pixelsPerSecond = state.pixelsPerSecond,
+                        onAction = onAction,
+                        mediaSource = mediaSource,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                    )
+
+                    HorizontalDivider(color = FlowColors.Steel, thickness = 1.dp)
+
+                    val activeSheet = state.activeSheet
+                    if (activeSheet != null) {
+                        EditorActiveSheet(
+                            sheet = activeSheet,
+                            state = state,
+                            onAction = onAction,
+                        )
+                    } else {
+                        EditorBottomToolbar(
+                            selectedClipId = state.selectedClipId,
+                            onAction = onAction,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EditorTopBar(
+    aspectRatio: AspectRatio,
+    canUndo: Boolean,
+    canRedo: Boolean,
+    onAction: (EditorAction) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val spacing = FlowTheme.spacing
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(52.dp)
+            .background(FlowColors.Carbon)
+            .padding(horizontal = spacing.sm),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = { onAction(EditorAction.Close) }) {
+            Icon(
+                imageVector = Icons.Rounded.Close,
+                contentDescription = "Cerrar editor",
+                tint = FlowColors.TextPrimary,
+            )
+        }
+
+        // Aspect ratio indicator pill opening EditorSheet.AspectRatio
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .background(FlowColors.Slate)
+                .border(1.dp, FlowColors.Outline, RoundedCornerShape(8.dp))
+                .clickable { onAction(EditorAction.OpenSheet(EditorSheet.AspectRatio)) }
+                .padding(horizontal = spacing.sm, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.AspectRatio,
+                contentDescription = "Relación de aspecto",
+                tint = FlowColors.TextSecondary,
+                modifier = Modifier.size(15.dp),
+            )
+            Text(
+                text = aspectRatio.label,
+                style = FlowTypography.labelLarge,
+                color = FlowColors.TextPrimary,
+            )
+        }
+
+        Spacer(Modifier.weight(1f))
+
+        IconButton(
+            onClick = { onAction(EditorAction.Undo) },
+            enabled = canUndo,
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Rounded.Undo,
+                contentDescription = "Deshacer",
+                tint = if (canUndo) FlowColors.TextPrimary else FlowColors.TextTertiary,
+            )
+        }
+
+        IconButton(
+            onClick = { onAction(EditorAction.Redo) },
+            enabled = canRedo,
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Rounded.Redo,
+                contentDescription = "Rehacer",
+                tint = if (canRedo) FlowColors.TextPrimary else FlowColors.TextTertiary,
+            )
+        }
+
+        Spacer(Modifier.width(spacing.xs))
+
+        Button(
+            onClick = { onAction(EditorAction.Export) },
+            colors = ButtonDefaults.buttonColors(
+                containerColor = FlowColors.Accent,
+                contentColor = FlowColors.OnAccent,
+            ),
+            shape = RoundedCornerShape(10.dp),
+            contentPadding = PaddingValues(horizontal = spacing.md, vertical = 6.dp),
+            modifier = Modifier.height(34.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.IosShare,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+            )
+            Spacer(Modifier.width(4.dp))
+            Text(
+                text = "Exportar",
+                style = FlowTypography.labelLarge,
+            )
+        }
+    }
+}
+
+@Composable
+private fun EditorPreviewArea(
+    aspectRatio: AspectRatio,
+    background: CanvasBackground,
+    loading: Boolean,
+    onDoubleTap: () -> Unit,
+    preview: @Composable (Modifier) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val spacing = FlowTheme.spacing
+    val targetRatio = aspectRatio.value.coerceAtLeast(0.1f)
+
+    BoxWithConstraints(
+        modifier = modifier
+            .background(FlowColors.Black)
+            .pointerInput(Unit) {
+                detectTapGestures(onDoubleTap = { onDoubleTap() })
+            }
+            .padding(spacing.sm),
+        contentAlignment = Alignment.Center,
+    ) {
+        val availableRatio = if (maxHeight > 0.dp) maxWidth / maxHeight else 1f
+        val matchHeightFirst = availableRatio > targetRatio
+
+        Box(
+            modifier = Modifier
+                .aspectRatio(
+                    ratio = targetRatio,
+                    matchHeightConstraintsFirst = matchHeightFirst,
+                )
+                .clip(RoundedCornerShape(4.dp))
+                .canvasBackgroundModifier(background)
+                .border(1.dp, FlowColors.Steel.copy(alpha = 0.7f), RoundedCornerShape(4.dp)),
+            contentAlignment = Alignment.Center,
+        ) {
+            preview(Modifier.fillMaxSize())
+
+            if (loading) {
+                CircularProgressIndicator(
+                    color = FlowColors.Accent,
+                    strokeWidth = 2.5.dp,
+                    modifier = Modifier.size(32.dp),
+                )
+            }
+        }
+    }
+}
+
+private fun Modifier.canvasBackgroundModifier(background: CanvasBackground): Modifier = when (background) {
+    is CanvasBackground.Solid -> this.background(Color(background.argb))
+    is CanvasBackground.Gradient -> this.background(
+        Brush.linearGradient(
+            colors = listOf(Color(background.startArgb), Color(background.endArgb)),
+        )
+    )
+    is CanvasBackground.Blur -> this.background(FlowColors.Graphite)
+    is CanvasBackground.Image -> this.background(FlowColors.Black)
+}
+
+@Composable
+private fun EditorPlaybackBar(
+    playheadUs: Long,
+    durationUs: Long,
+    fps: Int,
+    isPlaying: Boolean,
+    isFullscreen: Boolean,
+    onAction: (EditorAction) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val spacing = FlowTheme.spacing
+    val safeFps = fps.coerceAtLeast(1)
+    val currentFormatted = remember(playheadUs, safeFps) {
+        Timecode.format(playheadUs, safeFps)
+    }
+    val totalFormatted = remember(durationUs, safeFps) {
+        Timecode.format(durationUs, safeFps)
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(44.dp)
+            .background(FlowColors.Graphite)
+            .padding(horizontal = spacing.md),
+    ) {
+        Text(
+            text = buildAnnotatedString {
+                withStyle(SpanStyle(color = FlowColors.TextPrimary)) {
+                    append(currentFormatted)
+                }
+                withStyle(SpanStyle(color = FlowColors.TextSecondary)) {
+                    append(" / ")
+                    append(totalFormatted)
+                }
+            },
+            style = TimecodeStyle,
+            modifier = Modifier.align(Alignment.CenterStart),
+        )
+
+        IconButton(
+            onClick = { onAction(EditorAction.TogglePlay) },
+            modifier = Modifier
+                .align(Alignment.Center)
+                .size(36.dp)
+                .clip(CircleShape)
+                .background(FlowColors.Slate),
+        ) {
+            Icon(
+                imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                contentDescription = if (isPlaying) "Pausar" else "Reproducir",
+                tint = FlowColors.TextPrimary,
+                modifier = Modifier.size(22.dp),
+            )
+        }
+
+        Row(
+            modifier = Modifier.align(Alignment.CenterEnd),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(
+                onClick = { onAction(EditorAction.AddMarker) },
+                modifier = Modifier.size(34.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.BookmarkAdd,
+                    contentDescription = "Añadir marcador",
+                    tint = FlowColors.TextSecondary,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+            IconButton(
+                onClick = { onAction(EditorAction.ToggleFullscreen) },
+                modifier = Modifier.size(34.dp),
+            ) {
+                Icon(
+                    imageVector = if (isFullscreen) {
+                        Icons.Rounded.FullscreenExit
+                    } else {
+                        Icons.Rounded.Fullscreen
+                    },
+                    contentDescription = if (isFullscreen) {
+                        "Salir de pantalla completa"
+                    } else {
+                        "Pantalla completa"
+                    },
+                    tint = FlowColors.TextSecondary,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+        }
+    }
+}
+
+// region Preview Fakes
+
+private class FakePreviewTimelineMediaSource : TimelineMediaSource {
+    private val bitmapCache = HashMap<Int, ImageBitmap>()
+
+    override suspend fun thumbnail(
+        media: MediaRef,
+        sourceTimeUs: Long,
+        heightPx: Int,
+    ): ImageBitmap {
+        val bucket = ((sourceTimeUs / 500_000L).toInt() + media.uri.hashCode()) and 0x7FFFFFFF
+        return bitmapCache.getOrPut(bucket) {
+            val size = 64
+            val bmp = ImageBitmap(size, size)
+            val canvas = ComposeCanvas(bmp)
+            val hueShift = (bucket % 5) * 18
+            val bgPaint = Paint().apply {
+                color = Color(
+                    red = (45 + hueShift).coerceIn(0, 255) / 255f,
+                    green = (95 + hueShift).coerceIn(0, 255) / 255f,
+                    blue = (155 + hueShift / 2).coerceIn(0, 255) / 255f,
+                )
+            }
+            canvas.drawRect(0f, 0f, size.toFloat(), size.toFloat(), bgPaint)
+            val accentPaint = Paint().apply {
+                color = FlowColors.Accent.copy(alpha = 0.35f)
+            }
+            canvas.drawCircle(
+                center = Offset(size * 0.5f, size * 0.5f),
+                radius = size * 0.28f,
+                paint = accentPaint,
+            )
+            bmp
+        }
+    }
+
+    override suspend fun waveform(media: MediaRef, bucketsPerSecond: Int): FloatArray {
+        val seconds = (media.durationUs / Timecode.US_PER_SECOND).toInt().coerceAtLeast(4)
+        val count = seconds * bucketsPerSecond
+        return FloatArray(count) { i ->
+            (0.25f + 0.65f * abs(sin(i * 0.42f))).coerceIn(0.1f, 1f)
+        }
+    }
+}
+
+private fun createFakeEditorProject(): Project {
+    val clip1Media = MediaRef(
+        uri = "file:///fake/intro.mp4",
+        type = MediaType.VIDEO,
+        durationUs = 6_000_000L,
+        width = 1080,
+        height = 1920,
+        hasVideo = true,
+        hasAudio = true,
+        displayName = "Intro_ciudad.mp4",
+    )
+    val clip2Media = MediaRef(
+        uri = "file:///fake/broll.mp4",
+        type = MediaType.VIDEO,
+        durationUs = 8_000_000L,
+        width = 1080,
+        height = 1920,
+        hasVideo = true,
+        hasAudio = true,
+        displayName = "Plano_detalle.mp4",
+    )
+    val audioMedia = MediaRef(
+        uri = "file:///fake/beat.m4a",
+        type = MediaType.AUDIO,
+        durationUs = 12_000_000L,
+        hasVideo = false,
+        hasAudio = true,
+        displayName = "Synthwave_Beat.m4a",
+    )
+
+    val mainClip1 = Clip(
+        id = "clip_1",
+        kind = ClipKind.VIDEO,
+        media = clip1Media,
+        startUs = 0L,
+        trimInUs = 0L,
+        trimOutUs = 4_000_000L,
+    )
+    val mainClip2 = Clip(
+        id = "clip_2",
+        kind = ClipKind.VIDEO,
+        media = clip2Media,
+        startUs = 4_000_000L,
+        trimInUs = 500_000L,
+        trimOutUs = 6_500_000L,
+        speed = 1.5f,
+    )
+    val textClip = Clip(
+        id = "clip_text_1",
+        kind = ClipKind.TEXT,
+        startUs = 1_000_000L,
+        trimInUs = 0L,
+        trimOutUs = 3_500_000L,
+    )
+    val audioClip = Clip(
+        id = "clip_audio_1",
+        kind = ClipKind.AUDIO,
+        media = audioMedia,
+        startUs = 0L,
+        trimInUs = 0L,
+        trimOutUs = 8_000_000L,
+    )
+
+    return Project(
+        id = "proj_preview",
+        name = "Demo Flow",
+        createdAtMs = 1_730_000_000_000L,
+        updatedAtMs = 1_730_000_500_000L,
+        canvas = Canvas(aspectRatio = AspectRatio.R9_16),
+        tracks = listOf(
+            Track(
+                id = "main",
+                kind = TrackKind.MAIN,
+                clips = listOf(mainClip1, mainClip2),
+            ),
+            Track(
+                id = "track_text",
+                kind = TrackKind.TEXT,
+                clips = listOf(textClip),
+            ),
+            Track(
+                id = "track_audio",
+                kind = TrackKind.AUDIO,
+                clips = listOf(audioClip),
+            ),
+        ),
+        markers = listOf(
+            Marker(id = "m1", timeUs = 2_000_000L, label = "Corte"),
+            Marker(id = "m2", timeUs = 4_000_000L, label = "Drop"),
+        ),
+    )
+}
+
+@Composable
+private fun FakeVideoPreviewSurface(modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        drawRect(
+            brush = Brush.verticalGradient(
+                colors = listOf(Color(0xFF132238), Color(0xFF0A101A)),
+            ),
+        )
+        drawCircle(
+            color = FlowColors.Accent.copy(alpha = 0.25f),
+            radius = size.minDimension * 0.28f,
+            center = Offset(size.width * 0.5f, size.height * 0.45f),
+        )
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF0E0F12, widthDp = 412, heightDp = 892)
+@Composable
+private fun EditorContentPortraitPreview() {
+    val project = remember { createFakeEditorProject() }
+    val fakeMediaSource = remember { FakePreviewTimelineMediaSource() }
+
+    FlowTheme {
+        EditorContent(
+            state = EditorUiState(
+                project = project,
+                loading = false,
+                playheadUs = 2_250_000L,
+                isPlaying = false,
+                selectedClipId = "clip_1",
+                canUndo = true,
+                canRedo = false,
+                pixelsPerSecond = 64f,
+            ),
+            onAction = {},
+            mediaSource = fakeMediaSource,
+            preview = { mod -> FakeVideoPreviewSurface(mod) },
+        )
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF0E0F12, widthDp = 412, heightDp = 892)
+@Composable
+private fun EditorContentSpeedSheetPreview() {
+    val project = remember { createFakeEditorProject() }
+    val fakeMediaSource = remember { FakePreviewTimelineMediaSource() }
+
+    FlowTheme {
+        EditorContent(
+            state = EditorUiState(
+                project = project,
+                loading = false,
+                playheadUs = 4_500_000L,
+                isPlaying = false,
+                selectedClipId = "clip_2",
+                canUndo = true,
+                canRedo = true,
+                activeSheet = EditorSheet.Speed,
+            ),
+            onAction = {},
+            mediaSource = fakeMediaSource,
+            preview = { mod -> FakeVideoPreviewSurface(mod) },
+        )
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF0E0F12, widthDp = 840, heightDp = 412)
+@Composable
+private fun EditorContentLandscapePreview() {
+    val project = remember {
+        createFakeEditorProject().copy(
+            canvas = Canvas(aspectRatio = AspectRatio.R16_9),
+        )
+    }
+    val fakeMediaSource = remember { FakePreviewTimelineMediaSource() }
+
+    FlowTheme {
+        EditorContent(
+            state = EditorUiState(
+                project = project,
+                loading = false,
+                playheadUs = 1_500_000L,
+                isPlaying = true,
+                selectedClipId = null,
+                canUndo = true,
+                canRedo = true,
+            ),
+            onAction = {},
+            mediaSource = fakeMediaSource,
+            preview = { mod -> FakeVideoPreviewSurface(mod) },
+        )
+    }
+}
+
+// endregion
