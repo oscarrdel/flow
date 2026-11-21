@@ -74,3 +74,25 @@ class SrtTest {
         assertEquals(2, SubtitleEdits.cues(project).size)
     }
 }
+
+class ExtractAudioTest {
+    @Test
+    fun extractsAlignedAudioAndMutesVideo() {
+        val media = MediaRef("v", MediaType.VIDEO, durationUs = 5_000_000, width = 10, height = 10, hasAudio = true)
+        var project = Edits.insertIntoMain(ProjectFactory.create("p", 0L), listOf(ProjectFactory.clipFor(media)))
+        val video = project.mainTrack.clips.single()
+        project = MediaEdits.extractAudio(project, video.id)
+        val audio = project.tracks.single { it.kind == TrackKind.AUDIO }.clips.single()
+        assertTrue(project.mainTrack.clips.single().muted)
+        assertEquals(ClipKind.AUDIO, audio.kind)
+        assertEquals(video.startUs, audio.startUs)
+        assertEquals(video.durationUs, audio.durationUs)
+    }
+
+    @Test
+    fun ignoresVideosWithoutSound() {
+        val media = MediaRef("v", MediaType.VIDEO, durationUs = 5_000_000, hasAudio = false)
+        val project = Edits.insertIntoMain(ProjectFactory.create("p", 0L), listOf(ProjectFactory.clipFor(media)))
+        assertEquals(project, MediaEdits.extractAudio(project, project.mainTrack.clips.single().id))
+    }
+}

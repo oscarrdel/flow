@@ -36,6 +36,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(project(":core:data"))
     implementation(project(":core:engine"))
+    implementation(project(":core:audio"))
     implementation(libs.androidx.media3.ui.compose)
     implementation(libs.androidx.activity.compose)
     implementation(libs.coil.compose)

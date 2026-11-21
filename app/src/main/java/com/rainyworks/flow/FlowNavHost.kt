@@ -10,6 +10,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
+import com.rainyworks.flow.core.audio.VoiceRecorder
 import com.rainyworks.flow.core.engine.PreviewController
 import com.rainyworks.flow.feature.editor.EditorScreen
 import com.rainyworks.flow.feature.editor.EditorStrings
@@ -60,6 +61,7 @@ fun FlowNavHost(container: AppContainer) {
                             probe = container.mediaProbe,
                             thumbnails = container.thumbnails,
                             strings = editorStrings(context),
+                            recorder = VoiceRecorder(container.application),
                         )
                     }
                 },
@@ -75,7 +77,7 @@ fun FlowNavHost(container: AppContainer) {
             val route = entry.toRoute<ExportRoute>()
             val viewModel: ExportViewModel = viewModel(
                 factory = viewModelFactory {
-                    initializer { ExportViewModel(route.projectId, container.projectRepository, container.exporter) }
+                    initializer { ExportViewModel(route.projectId, container.projectRepository, container.exportManager) }
                 },
             )
             ExportScreen(viewModel = viewModel, onDone = { navController.popBackStack() })
@@ -94,4 +96,11 @@ private fun editorStrings(context: Context) = EditorStrings(
     someMediaFailed = context.getString(EditorR.string.editor_some_media_failed),
     cannotSplitHere = context.getString(EditorR.string.editor_cannot_split_here),
     comingSoon = context.getString(EditorR.string.editor_coming_soon),
+    cannotReplace = context.getString(EditorR.string.editor_cannot_replace),
+    cannotFreezeHere = context.getString(EditorR.string.editor_cannot_freeze_here),
+    noAudioToExtract = context.getString(EditorR.string.editor_no_audio_to_extract),
+    micPermissionDenied = context.getString(EditorR.string.editor_mic_permission_denied),
+    micUnavailable = context.getString(EditorR.string.editor_mic_unavailable),
+    recordingTooShort = context.getString(EditorR.string.editor_recording_too_short),
+    voiceOverName = context.getString(EditorR.string.editor_voice_over_name),
 )

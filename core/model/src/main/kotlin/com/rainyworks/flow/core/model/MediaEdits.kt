@@ -77,4 +77,35 @@ object MediaEdits {
 
     fun toggleReverse(project: Project, clipId: String): Project =
         Edits.updateClip(project, clipId) { if (it.kind == ClipKind.VIDEO || it.kind == ClipKind.AUDIO) it.copy(reversed = !it.reversed) else it }
+
+    /**
+     * Copies the sound of a video clip onto an audio track, aligned with the clip, and
+     * mutes the original so the audio can be edited independently.
+     */
+    fun extractAudio(project: Project, clipId: String): Project {
+        val (track, clip) = project.findClip(clipId) ?: return project
+        if (track.locked || clip.kind != ClipKind.VIDEO || clip.media?.hasAudio != true) return project
+        val audio = clip.copy(
+            id = Edits.newId(),
+            kind = ClipKind.AUDIO,
+            transform = Transform(),
+            keyframes = clip.keyframes.filterKeys { it == AnimatedProperty.VOLUME },
+            color = ColorGrade(),
+            effects = emptyList(),
+            transitionIn = null,
+            mask = null,
+            chromaKey = null,
+            blendMode = BlendMode.NORMAL,
+            opacity = 1f,
+            muted = false,
+        )
+        val muted = Edits.updateClip(project, clipId) { it.copy(muted = true) }
+        return Edits.addToLayer(muted, audio, TrackKind.AUDIO)
+    }
+
+    /** Adds an audio file (music, effect or voice-over) at [atUs] on a free audio track. */
+    fun addAudio(project: Project, media: MediaRef, atUs: Long): Project {
+        if (media.type != MediaType.AUDIO || media.durationUs <= 0L) return project
+        return Edits.addToLayer(project, ProjectFactory.clipFor(media).copy(startUs = atUs.coerceAtLeast(0L)), TrackKind.AUDIO)
+    }
 }

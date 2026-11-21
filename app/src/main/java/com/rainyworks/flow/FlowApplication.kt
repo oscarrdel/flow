@@ -7,10 +7,14 @@ import com.rainyworks.flow.core.engine.MediaProbe
 import com.rainyworks.flow.core.engine.ThumbnailProvider
 import com.rainyworks.flow.core.engine.WaveformProvider
 import com.rainyworks.flow.feature.editor.EngineTimelineMediaSource
+import com.rainyworks.flow.feature.export.ExportManager
+import com.rainyworks.flow.feature.export.ExportManagerHolder
 
-class FlowApplication : Application() {
+class FlowApplication : Application(), ExportManagerHolder {
     lateinit var container: AppContainer
         private set
+
+    override val exportManager: ExportManager get() = container.exportManager
 
     override fun onCreate() {
         super.onCreate()
@@ -26,5 +30,6 @@ class AppContainer(val application: Application) {
     val thumbnails by lazy { ThumbnailProvider(application) }
     val waveforms by lazy { WaveformProvider(application) }
     val exporter by lazy { Exporter(application) }
+    val exportManager by lazy { ExportManager(application, exporter) }
     val timelineMediaSource by lazy { EngineTimelineMediaSource(thumbnails, waveforms) }
 }

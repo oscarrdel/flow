@@ -9,13 +9,19 @@ import com.rainyworks.flow.core.data.ProjectRepository
 import com.rainyworks.flow.core.engine.MediaProbe
 import com.rainyworks.flow.core.engine.PreviewController
 import com.rainyworks.flow.core.engine.ThumbnailProvider
+import com.rainyworks.flow.core.model.ClipKind
 import com.rainyworks.flow.core.model.EditHistory
 import com.rainyworks.flow.core.model.Edits
+import com.rainyworks.flow.core.model.MediaEdits
+import com.rainyworks.flow.core.model.MediaRef
 import com.rainyworks.flow.core.model.MediaType
 import com.rainyworks.flow.core.model.Project
 import com.rainyworks.flow.core.model.ProjectFactory
 import com.rainyworks.flow.core.model.TrackKind
+import com.rainyworks.flow.core.audio.VoiceRecorder
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -26,10 +32,16 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+enum class PickPurpose { Append, Overlay, Replace, Audio }
+
 sealed interface EditorEvent {
-    data object PickMedia : EditorEvent
+    data class PickMedia(val purpose: PickPurpose) : EditorEvent
     data object Closed : EditorEvent
     data class OpenExport(val projectId: String) : EditorEvent
+
+    /** Subtle tick, e.g. when playback crosses a marker. */
+    data object Tick : EditorEvent
+    data object RequestMicPermission : EditorEvent
 }
 
 class EditorViewModel(
@@ -39,6 +51,7 @@ class EditorViewModel(
     private val probe: MediaProbe,
     private val thumbnails: ThumbnailProvider,
     private val strings: EditorStrings,
+    private val recorder: VoiceRecorder,
 ) : ViewModel() {
     private val _state = MutableStateFlow(EditorUiState())
     val state: StateFlow<EditorUiState> = _state.asStateFlow()
@@ -50,6 +63,8 @@ class EditorViewModel(
     private val autoSaver = AutoSaver(repository, viewModelScope)
     private var scrubbing = false
     private var coverKey: String? = null
+    private var pickPurpose = PickPurpose.Append
+    private var replaceTargetId: String? = null
 
     /** Project as it was when the current drag gesture started; drag updates are applied to it. */
     private var gestureBase: Project? = null
@@ -63,8 +78,18 @@ class EditorViewModel(
             _state.update { it.copy(project = project, loading = false) }
         }
         viewModelScope.launch {
+            var previous = 0L
             preview.positionUs.collect { position ->
-                if (!scrubbing) _state.update { it.copy(playheadUs = position) }
+                if (!scrubbing) {
+                    val markers = _state.value.project?.markers.orEmpty()
+                    if (_state.value.isPlaying && position > previous &&
+                        markers.any { it.timeUs > previous && it.timeUs <= position }
+                    ) {
+                        _events.trySend(EditorEvent.Tick)
+                    }
+                    _state.update { it.copy(playheadUs = position) }
+                }
+                previous = position
             }
         }
         viewModelScope.launch {
@@ -93,7 +118,7 @@ class EditorViewModel(
             EditorAction.Redo -> history?.let { setHistory(it.redo()) }
             EditorAction.TogglePlay -> if (_state.value.isPlaying) preview.pause() else preview.play()
             EditorAction.ToggleFullscreen -> _state.update { it.copy(fullscreenPreview = !it.fullscreenPreview) }
-            EditorAction.AddMedia -> viewModelScope.launch { _events.send(EditorEvent.PickMedia) }
+            EditorAction.AddMedia -> pick(PickPurpose.Append)
             EditorAction.AddMarker -> current?.let { apply(Edits.addMarker(it, _state.value.playheadUs)) }
             is EditorAction.Seek -> seek(action.timeUs, action.final)
             is EditorAction.SelectClip -> _state.update { it.copy(selectedClipId = action.clipId, activeSheet = null) }
@@ -123,42 +148,193 @@ class EditorViewModel(
             is EditorAction.SetVolume -> drag("volume-${action.clipId}", action.final) { project ->
                 Edits.updateClip(project, action.clipId) { it.copy(volume = action.volume.coerceIn(0f, 2f)) }
             }
+            is EditorAction.SetTransform -> drag("transform-${action.clipId}", action.final) {
+                MediaEdits.setTransform(it, action.clipId, action.transform)
+            }
+            is EditorAction.SetOpacity -> drag("opacity-${action.clipId}", action.final) {
+                MediaEdits.setOpacity(it, action.clipId, action.opacity)
+            }
             is EditorAction.SetAspectRatio -> current?.let { apply(Edits.setAspectRatio(it, action.ratio)) }
             is EditorAction.SetBackground -> current?.let { apply(Edits.setBackground(it, action.background)) }
             is EditorAction.OpenSheet -> _state.update { it.copy(activeSheet = action.sheet) }
             EditorAction.DismissSheet -> _state.update { it.copy(activeSheet = null) }
             EditorAction.NoticeShown -> _state.update { it.copy(notice = null) }
+            is EditorAction.SetAudioPanel -> _state.update { it.copy(audioPanelOpen = action.open, activeSheet = null) }
+            EditorAction.AddAudioFile -> {
+                _state.update { it.copy(audioPanelOpen = false) }
+                pick(PickPurpose.Audio)
+            }
+            EditorAction.ExtractAudio -> extractAudio()
+            EditorAction.OpenVoiceOver -> openVoiceOver()
+            is EditorAction.SetVoiceOverMute -> _state.update { s -> s.copy(voiceOver = s.voiceOver?.copy(mutePreview = action.mute)) }
+            EditorAction.StartVoiceOver -> startVoiceOver()
+            EditorAction.StopVoiceOver -> stopVoiceOver(keep = true)
+            EditorAction.CancelVoiceOver -> stopVoiceOver(keep = false)
         }
     }
 
     fun onMediaPicked(uris: List<Uri>) {
         if (uris.isEmpty()) return
+        val purpose = pickPurpose
+        val replaceId = replaceTargetId
         viewModelScope.launch {
             val media = uris.mapNotNull { probe.probe(it) }
             if (media.size < uris.size) notify(strings.someMediaFailed)
+            if (media.isEmpty()) return@launch
             var project = history?.present ?: return@launch
             val playhead = _state.value.playheadUs
-            val visual = media.filter { it.type != MediaType.AUDIO }.map { ProjectFactory.clipFor(it) }
-            if (visual.isNotEmpty()) {
-                val atUs = if (project.mainTrack.clips.isEmpty()) null else playhead
-                project = Edits.insertIntoMain(project, visual, atUs)
-            }
-            media.filter { it.type == MediaType.AUDIO }.forEach {
-                project = Edits.addToLayer(project, ProjectFactory.clipFor(it).copy(startUs = playhead), TrackKind.AUDIO)
+            when (purpose) {
+                PickPurpose.Append -> {
+                    val visual = media.filter { it.type != MediaType.AUDIO }.map { ProjectFactory.clipFor(it) }
+                    if (visual.isNotEmpty()) {
+                        val atUs = if (project.mainTrack.clips.isEmpty()) null else playhead
+                        project = Edits.insertIntoMain(project, visual, atUs)
+                    }
+                    media.filter { it.type == MediaType.AUDIO }.forEach {
+                        project = Edits.addToLayer(project, ProjectFactory.clipFor(it).copy(startUs = playhead), TrackKind.AUDIO)
+                    }
+                }
+                PickPurpose.Overlay -> media.forEach { project = MediaEdits.addOverlay(project, it, playhead) }
+                PickPurpose.Audio -> media.forEach { project = MediaEdits.addAudio(project, it, playhead) }
+                PickPurpose.Replace -> {
+                    val target = replaceId ?: return@launch
+                    val replaced = MediaEdits.replaceMedia(project, target, media.first())
+                    if (replaced == project) notify(strings.cannotReplace)
+                    project = replaced
+                }
             }
             apply(project)
         }
     }
 
+    private fun pick(purpose: PickPurpose, replaceTarget: String? = null) {
+        pickPurpose = purpose
+        replaceTargetId = replaceTarget
+        viewModelScope.launch { _events.send(EditorEvent.PickMedia(purpose)) }
+    }
+
+    private fun freezeFrame(clipId: String) {
+        val project = history?.present ?: return
+        val (_, clip) = project.findClip(clipId) ?: return
+        val media = clip.media ?: return
+        val playhead = _state.value.playheadUs
+        if (clip.kind != ClipKind.VIDEO || !clip.contains(playhead)) {
+            notify(strings.cannotFreezeHere)
+            return
+        }
+        viewModelScope.launch {
+            val sourceUs = clip.sourceTimeAt(playhead)
+            val bitmap = thumbnails.frameAt(media, sourceUs, media.displayHeight.coerceAtLeast(MIN_FRAME_HEIGHT_PX))
+            if (bitmap == null) {
+                notify(strings.cannotFreezeHere)
+                return@launch
+            }
+            val file = repository.newAssetFile(projectId, "png")
+            withContext(Dispatchers.IO) {
+                file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            }
+            val still = MediaRef(
+                uri = Uri.fromFile(file).toString(),
+                type = MediaType.IMAGE,
+                width = bitmap.width,
+                height = bitmap.height,
+                displayName = media.displayName,
+                sizeBytes = file.length(),
+                mimeType = "image/png",
+            )
+            val current = history?.present ?: return@launch
+            apply(MediaEdits.insertFreezeFrame(current, clipId, playhead, still, FREEZE_DURATION_US))
+        }
+    }
+
+    private fun extractAudio() {
+        val project = history?.present ?: return
+        val clipId = _state.value.selectedClipId
+        val result = clipId?.let { MediaEdits.extractAudio(project, it) }
+        if (result == null || result == project) notify(strings.noAudioToExtract) else apply(result)
+        _state.update { it.copy(audioPanelOpen = false) }
+    }
+
+    private fun openVoiceOver() {
+        if (!recorder.hasPermission()) {
+            viewModelScope.launch { _events.send(EditorEvent.RequestMicPermission) }
+            return
+        }
+        preview.pause()
+        _state.update { it.copy(audioPanelOpen = false, voiceOver = VoiceOverUiState(startUs = it.playheadUs)) }
+    }
+
+    /** Called after the user answers the microphone permission prompt. */
+    fun onMicPermissionResult(granted: Boolean) {
+        if (granted) openVoiceOver() else notify(strings.micPermissionDenied)
+    }
+
+    private var voiceJob: Job? = null
+
+    private fun startVoiceOver() {
+        val voice = _state.value.voiceOver ?: return
+        if (voice.recording || voice.countdown != null) return
+        voiceJob = viewModelScope.launch {
+            for (n in VOICE_COUNTDOWN downTo 1) {
+                _state.update { it.copy(voiceOver = it.voiceOver?.copy(countdown = n)) }
+                delay(1_000)
+            }
+            val file = repository.newAssetFile(projectId, "wav")
+            if (!recorder.start(viewModelScope, file)) {
+                _state.update { it.copy(voiceOver = null) }
+                notify(strings.micUnavailable)
+                return@launch
+            }
+            val startUs = _state.value.playheadUs
+            _state.update { it.copy(voiceOver = it.voiceOver?.copy(countdown = null, recording = true, startUs = startUs)) }
+            if (voice.mutePreview) preview.player.volume = 0f
+            preview.play()
+            launch { recorder.level.collect { l -> _state.update { it.copy(voiceOver = it.voiceOver?.copy(level = l)) } } }
+            launch { recorder.elapsedUs.collect { e -> _state.update { it.copy(voiceOver = it.voiceOver?.copy(elapsedUs = e)) } } }
+        }
+    }
+
+    private fun stopVoiceOver(keep: Boolean) {
+        val voice = _state.value.voiceOver ?: return
+        voiceJob?.cancel()
+        voiceJob = null
+        viewModelScope.launch {
+            preview.pause()
+            preview.player.volume = 1f
+            val recording = if (keep) recorder.stop() else recorder.cancel().let { null }
+            _state.update { it.copy(voiceOver = null) }
+            if (recording != null) {
+                val media = MediaRef(
+                    uri = Uri.fromFile(recording.file).toString(),
+                    type = MediaType.AUDIO,
+                    durationUs = recording.durationUs,
+                    hasVideo = false,
+                    hasAudio = true,
+                    displayName = strings.voiceOverName,
+                    sizeBytes = recording.file.length(),
+                    mimeType = "audio/wav",
+                )
+                val project = history?.present ?: return@launch
+                apply(MediaEdits.addAudio(project, media, voice.startUs))
+                preview.seekTo(voice.startUs)
+            } else if (keep) {
+                notify(strings.recordingTooShort)
+            }
+        }
+    }
+
     /** Pauses playback and persists immediately; called when the app goes to the background. */
     fun onStop() {
+        if (_state.value.voiceOver != null) stopVoiceOver(keep = true)
         preview.pause()
         viewModelScope.launch { autoSaver.flush() }
     }
 
     private fun onGlobalTool(tool: GlobalTool) {
         when (tool) {
-            GlobalTool.Edit -> onAction(EditorAction.AddMedia)
+            GlobalTool.Edit -> pick(PickPurpose.Append)
+            GlobalTool.Overlay -> pick(PickPurpose.Overlay)
+            GlobalTool.Audio -> _state.update { it.copy(audioPanelOpen = true, activeSheet = null) }
             GlobalTool.Format -> _state.update { it.copy(activeSheet = EditorSheet.AspectRatio) }
             GlobalTool.Canvas -> _state.update { it.copy(activeSheet = EditorSheet.Background) }
             else -> notify(strings.comingSoon)
@@ -175,6 +351,11 @@ class EditorViewModel(
             }
             ClipTool.Speed -> _state.update { it.copy(activeSheet = EditorSheet.Speed) }
             ClipTool.Volume -> _state.update { it.copy(activeSheet = EditorSheet.Volume) }
+            ClipTool.Transform -> _state.update { it.copy(activeSheet = EditorSheet.Transform) }
+            ClipTool.Opacity -> _state.update { it.copy(activeSheet = EditorSheet.Opacity) }
+            ClipTool.Crop -> _state.update { it.copy(activeSheet = EditorSheet.Crop) }
+            ClipTool.Replace -> pick(PickPurpose.Replace, clipId)
+            ClipTool.Freeze -> freezeFrame(clipId)
             ClipTool.Duplicate -> apply(Edits.duplicate(project, clipId))
             ClipTool.Delete -> {
                 apply(Edits.delete(project, clipId))
@@ -259,6 +440,9 @@ class EditorViewModel(
 
     private companion object {
         const val COVER_HEIGHT_PX = 360
+        const val MIN_FRAME_HEIGHT_PX = 720
+        const val FREEZE_DURATION_US = 3_000_000L
+        const val VOICE_COUNTDOWN = 3
     }
 }
 
@@ -269,4 +453,11 @@ data class EditorStrings(
     val someMediaFailed: String,
     val cannotSplitHere: String,
     val comingSoon: String,
+    val cannotReplace: String,
+    val cannotFreezeHere: String,
+    val noAudioToExtract: String,
+    val micPermissionDenied: String,
+    val micUnavailable: String,
+    val recordingTooShort: String,
+    val voiceOverName: String,
 )

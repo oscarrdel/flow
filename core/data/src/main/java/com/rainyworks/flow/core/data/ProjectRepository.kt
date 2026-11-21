@@ -96,6 +96,12 @@ class ProjectRepository(
     /** Where the editor should write the project's cover image. */
     fun thumbnailFile(id: String): File = store.thumbnailFile(id).also { it.parentFile?.mkdirs() }
 
+    /** A file inside the project folder for media the editor generates (freeze frames, recordings). */
+    fun newAssetFile(id: String, extension: String): File {
+        val dir = File(store.projectDir(id), "assets").also { it.mkdirs() }
+        return File(dir, "${Edits.newId()}.$extension")
+    }
+
     suspend fun onThumbnailUpdated(id: String) = withContext(io) {
         val thumb = store.thumbnailFile(id)
         dao.setThumbnail(id, thumb.path.takeIf { thumb.exists() }, store.sizeOf(id))

@@ -42,6 +42,7 @@ dependencies {
     implementation(project(":core:designsystem"))
     implementation(project(":core:data"))
     implementation(project(":core:engine"))
+    implementation(project(":core:audio"))
     implementation(project(":feature:home"))
     implementation(project(":feature:editor"))
     implementation(project(":feature:export"))

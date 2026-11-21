@@ -5,4 +5,11 @@
     <string name="editor_some_media_failed">Algunos archivos no se pudieron importar</string>
     <string name="editor_cannot_split_here">Mueve el cabezal dentro del clip para dividirlo</string>
     <string name="editor_coming_soon">Disponible pronto</string>
+    <string name="editor_cannot_replace">Ese archivo no puede reemplazar este clip</string>
+    <string name="editor_cannot_freeze_here">Coloca el cabezal sobre un video para congelar el fotograma</string>
+    <string name="editor_no_audio_to_extract">Selecciona un video con sonido para extraer su audio</string>
+    <string name="editor_mic_permission_denied">Se necesita el micrófono para grabar la voz en off</string>
+    <string name="editor_mic_unavailable">No se pudo usar el micrófono</string>
+    <string name="editor_recording_too_short">La grabación fue demasiado corta</string>
+    <string name="editor_voice_over_name">Voz en off</string>
 </resources>

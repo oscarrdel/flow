@@ -5,6 +5,7 @@ import com.rainyworks.flow.core.model.AspectRatio
 import com.rainyworks.flow.core.model.CanvasBackground
 import com.rainyworks.flow.core.model.MediaRef
 import com.rainyworks.flow.core.model.Project
+import com.rainyworks.flow.core.model.Transform
 
 data class EditorUiState(
     val project: Project? = null,
@@ -19,6 +20,8 @@ data class EditorUiState(
     val activeSheet: EditorSheet? = null,
     val fullscreenPreview: Boolean = false,
     val fps: Int = 30,
+    val audioPanelOpen: Boolean = false,
+    val voiceOver: VoiceOverUiState? = null,
     /** Short transient message (snackbar). Cleared with [EditorAction.NoticeShown]. */
     val notice: String? = null,
 ) {
@@ -29,13 +32,25 @@ data class EditorUiState(
     }
 }
 
-enum class EditorSheet { Speed, Volume, AspectRatio, Background }
+data class VoiceOverUiState(
+    /** Seconds left before recording starts, or null once recording. */
+    val countdown: Int? = null,
+    val recording: Boolean = false,
+    val level: Float = 0f,
+    val elapsedUs: Long = 0L,
+    val startUs: Long = 0L,
+    val mutePreview: Boolean = true,
+)
+
+enum class EditorSheet { Speed, Volume, AspectRatio, Background, Transform, Crop, Opacity }
 
 /** Global tools shown in the bottom bar when no clip is selected. */
 enum class GlobalTool { Edit, Audio, Text, Overlay, Effects, Filters, Format, Canvas }
 
 /** Tools shown in the bottom bar when a clip is selected. */
-enum class ClipTool { Split, Speed, Volume, Duplicate, Delete, Replace, Freeze, Reverse, Crop, Chroma, Mask, Animation }
+enum class ClipTool {
+    Split, Speed, Volume, Transform, Opacity, Duplicate, Delete, Replace, Freeze, Reverse, Crop, Chroma, Mask, Animation,
+}
 
 sealed interface EditorAction {
     data object Close : EditorAction
@@ -63,12 +78,24 @@ sealed interface EditorAction {
 
     data class SetSpeed(val clipId: String, val speed: Float, val final: Boolean) : EditorAction
     data class SetVolume(val clipId: String, val volume: Float, val final: Boolean) : EditorAction
+    /** Direct manipulation on the preview or exact values from the transform panel. */
+    data class SetTransform(val clipId: String, val transform: Transform, val final: Boolean) : EditorAction
+    data class SetOpacity(val clipId: String, val opacity: Float, val final: Boolean) : EditorAction
     data class SetAspectRatio(val ratio: AspectRatio) : EditorAction
     data class SetBackground(val background: CanvasBackground) : EditorAction
 
     data class OpenSheet(val sheet: EditorSheet) : EditorAction
     data object DismissSheet : EditorAction
     data object NoticeShown : EditorAction
+
+    data class SetAudioPanel(val open: Boolean) : EditorAction
+    data object AddAudioFile : EditorAction
+    data object ExtractAudio : EditorAction
+    data object OpenVoiceOver : EditorAction
+    data class SetVoiceOverMute(val mute: Boolean) : EditorAction
+    data object StartVoiceOver : EditorAction
+    data object StopVoiceOver : EditorAction
+    data object CancelVoiceOver : EditorAction
 }
 
 /** Supplies timeline visuals. Implementations cache aggressively; calls may suspend. */
