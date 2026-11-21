@@ -12,4 +12,14 @@
     <string name="editor_mic_unavailable">No se pudo usar el micrófono</string>
     <string name="editor_recording_too_short">La grabación fue demasiado corta</string>
     <string name="editor_voice_over_name">Voz en off</string>
+    <string name="editor_default_text">Escribe aquí</string>
+    <string name="editor_select_clip_first">Selecciona un clip primero</string>
+    <string name="editor_grade_applied_to_all">Color aplicado a todos los clips</string>
+    <string name="editor_invalid_lut">El archivo no es una LUT .cube válida</string>
+    <string name="editor_invalid_font">El archivo no es una fuente .ttf u .otf válida</string>
+    <string name="editor_invalid_srt">No se pudo leer o escribir el archivo de subtítulos</string>
+    <string name="editor_no_subtitles">Este proyecto no tiene subtítulos</string>
+    <string name="editor_subtitle_overlaps">Ese bloque se superpone con otro subtítulo</string>
+    <string name="editor_subtitles_imported">%d subtítulos importados</string>
+    <string name="editor_subtitles_exported">Subtítulos exportados</string>
 </resources>

@@ -13,6 +13,8 @@ class DataModule(context: Context) {
         Room.databaseBuilder(appContext, FlowDatabase::class.java, "flow.db").build()
     }
 
+    val fontStore: FontStore by lazy { FontStore(appContext) }
+
     val projectRepository: ProjectRepository by lazy {
         ProjectRepository(
             store = ProjectFileStore(File(appContext.filesDir, "projects")),

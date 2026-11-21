@@ -4,7 +4,10 @@ import androidx.compose.ui.graphics.ImageBitmap
 import com.rainyworks.flow.core.model.AspectRatio
 import com.rainyworks.flow.core.model.CanvasBackground
 import com.rainyworks.flow.core.model.MediaRef
+import com.rainyworks.flow.core.model.ColorGrade
 import com.rainyworks.flow.core.model.Project
+import com.rainyworks.flow.core.model.SubtitleCue
+import com.rainyworks.flow.core.model.TextContent
 import com.rainyworks.flow.core.model.Transform
 
 data class EditorUiState(
@@ -21,6 +24,8 @@ data class EditorUiState(
     val fullscreenPreview: Boolean = false,
     val fps: Int = 30,
     val audioPanelOpen: Boolean = false,
+    /** Fonts the user imported, as (display name, font id/URI) pairs. */
+    val customFonts: List<Pair<String, String>> = emptyList(),
     val voiceOver: VoiceOverUiState? = null,
     /** Short transient message (snackbar). Cleared with [EditorAction.NoticeShown]. */
     val notice: String? = null,
@@ -42,7 +47,10 @@ data class VoiceOverUiState(
     val mutePreview: Boolean = true,
 )
 
-enum class EditorSheet { Speed, Volume, AspectRatio, Background, Transform, Crop, Opacity }
+enum class EditorSheet {
+    Speed, Volume, AspectRatio, Background, Transform, Crop, Opacity,
+    Filters, Adjust, Curves, Hsl, Text, Subtitles,
+}
 
 /** Global tools shown in the bottom bar when no clip is selected. */
 enum class GlobalTool { Edit, Audio, Text, Overlay, Effects, Filters, Format, Canvas }
@@ -50,6 +58,7 @@ enum class GlobalTool { Edit, Audio, Text, Overlay, Effects, Filters, Format, Ca
 /** Tools shown in the bottom bar when a clip is selected. */
 enum class ClipTool {
     Split, Speed, Volume, Transform, Opacity, Duplicate, Delete, Replace, Freeze, Reverse, Crop, Chroma, Mask, Animation,
+    Filters, Adjust, EditText,
 }
 
 sealed interface EditorAction {
@@ -87,6 +96,24 @@ sealed interface EditorAction {
     data class OpenSheet(val sheet: EditorSheet) : EditorAction
     data object DismissSheet : EditorAction
     data object NoticeShown : EditorAction
+
+    /** Color: filter, manual adjustments, curves, HSL and LUT of a clip (or adjustment layer). */
+    data class SetColorGrade(val clipId: String, val grade: ColorGrade, val final: Boolean) : EditorAction
+    /** Copies the grade of [clipId] to every visual clip of the main track. */
+    data class ApplyGradeToAll(val clipId: String) : EditorAction
+    data class ImportLut(val clipId: String) : EditorAction
+    /** Adds an adjustment layer at the playhead that grades everything below it. */
+    data object AddAdjustmentLayer : EditorAction
+
+    /** Creates a text clip at the playhead and opens the text editor. */
+    data class AddText(val template: TextContent? = null) : EditorAction
+    data class SetTextContent(val clipId: String, val content: TextContent, val final: Boolean) : EditorAction
+    data object ImportFont : EditorAction
+
+    data class AddSubtitle(val cue: SubtitleCue) : EditorAction
+    data class UpdateSubtitle(val clipId: String, val cue: SubtitleCue) : EditorAction
+    data object ImportSrt : EditorAction
+    data object ExportSrt : EditorAction
 
     data class SetAudioPanel(val open: Boolean) : EditorAction
     data object AddAudioFile : EditorAction

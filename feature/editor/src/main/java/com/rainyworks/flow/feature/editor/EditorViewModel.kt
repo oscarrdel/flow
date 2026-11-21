@@ -1,15 +1,21 @@
 package com.rainyworks.flow.feature.editor
 
 import android.graphics.Bitmap
+import android.content.ContentResolver
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.rainyworks.flow.core.data.AutoSaver
+import com.rainyworks.flow.core.data.FontStore
 import com.rainyworks.flow.core.data.ProjectRepository
 import com.rainyworks.flow.core.engine.MediaProbe
 import com.rainyworks.flow.core.engine.PreviewController
 import com.rainyworks.flow.core.engine.ThumbnailProvider
 import com.rainyworks.flow.core.model.ClipKind
+import com.rainyworks.flow.core.model.CubeLut
+import com.rainyworks.flow.core.model.Srt
+import com.rainyworks.flow.core.model.SubtitleEdits
+import com.rainyworks.flow.core.model.TextContent
 import com.rainyworks.flow.core.model.EditHistory
 import com.rainyworks.flow.core.model.Edits
 import com.rainyworks.flow.core.model.MediaEdits
@@ -42,7 +48,11 @@ sealed interface EditorEvent {
     /** Subtle tick, e.g. when playback crosses a marker. */
     data object Tick : EditorEvent
     data object RequestMicPermission : EditorEvent
+    data class OpenDocument(val kind: DocumentKind) : EditorEvent
+    data class CreateSrt(val suggestedName: String) : EditorEvent
 }
+
+enum class DocumentKind { Lut, Font, Srt }
 
 class EditorViewModel(
     private val projectId: String,
@@ -52,6 +62,8 @@ class EditorViewModel(
     private val thumbnails: ThumbnailProvider,
     private val strings: EditorStrings,
     private val recorder: VoiceRecorder,
+    private val fonts: FontStore,
+    private val contentResolver: ContentResolver,
 ) : ViewModel() {
     private val _state = MutableStateFlow(EditorUiState())
     val state: StateFlow<EditorUiState> = _state.asStateFlow()
@@ -65,6 +77,7 @@ class EditorViewModel(
     private var coverKey: String? = null
     private var pickPurpose = PickPurpose.Append
     private var replaceTargetId: String? = null
+    private var lutTargetId: String? = null
 
     /** Project as it was when the current drag gesture started; drag updates are applied to it. */
     private var gestureBase: Project? = null
@@ -91,6 +104,10 @@ class EditorViewModel(
                 }
                 previous = position
             }
+        }
+        viewModelScope.launch {
+            val list = fonts.list()
+            _state.update { it.copy(customFonts = list) }
         }
         viewModelScope.launch {
             preview.isPlaying.collect { playing -> _state.update { it.copy(isPlaying = playing) } }
@@ -159,6 +176,45 @@ class EditorViewModel(
             is EditorAction.OpenSheet -> _state.update { it.copy(activeSheet = action.sheet) }
             EditorAction.DismissSheet -> _state.update { it.copy(activeSheet = null) }
             EditorAction.NoticeShown -> _state.update { it.copy(notice = null) }
+            is EditorAction.SetColorGrade -> drag("grade-${action.clipId}", action.final) {
+                MediaEdits.setColorGrade(it, action.clipId, action.grade)
+            }
+            is EditorAction.ApplyGradeToAll -> current?.let {
+                apply(MediaEdits.applyGradeToMain(it, action.clipId))
+                notify(strings.gradeAppliedToAll)
+            }
+            is EditorAction.ImportLut -> {
+                lutTargetId = action.clipId
+                viewModelScope.launch { _events.send(EditorEvent.OpenDocument(DocumentKind.Lut)) }
+            }
+            EditorAction.AddAdjustmentLayer -> current?.let {
+                val (project, id) = MediaEdits.addAdjustmentLayer(it, _state.value.playheadUs)
+                apply(project)
+                _state.update { s -> s.copy(selectedClipId = id, activeSheet = EditorSheet.Adjust) }
+            }
+            is EditorAction.AddText -> current?.let {
+                val content = action.template ?: TextContent(text = strings.defaultText)
+                val (project, id) = MediaEdits.addText(it, _state.value.playheadUs, content)
+                apply(project)
+                _state.update { s -> s.copy(selectedClipId = id, activeSheet = EditorSheet.Text) }
+            }
+            is EditorAction.SetTextContent -> drag("text-${action.clipId}", action.final) {
+                MediaEdits.setTextContent(it, action.clipId, action.content)
+            }
+            EditorAction.ImportFont -> viewModelScope.launch { _events.send(EditorEvent.OpenDocument(DocumentKind.Font)) }
+            is EditorAction.AddSubtitle -> current?.let { apply(SubtitleEdits.addCue(it, action.cue)) }
+            is EditorAction.UpdateSubtitle -> current?.let {
+                val updated = MediaEdits.updateSubtitle(it, action.clipId, action.cue)
+                if (updated == it) notify(strings.subtitleOverlaps) else apply(updated)
+            }
+            EditorAction.ImportSrt -> viewModelScope.launch { _events.send(EditorEvent.OpenDocument(DocumentKind.Srt)) }
+            EditorAction.ExportSrt -> current?.let { project ->
+                if (SubtitleEdits.cues(project).isEmpty()) {
+                    notify(strings.noSubtitles)
+                } else {
+                    viewModelScope.launch { _events.send(EditorEvent.CreateSrt("${project.name}.srt")) }
+                }
+            }
             is EditorAction.SetAudioPanel -> _state.update { it.copy(audioPanelOpen = action.open, activeSheet = null) }
             EditorAction.AddAudioFile -> {
                 _state.update { it.copy(audioPanelOpen = false) }
@@ -245,6 +301,67 @@ class EditorViewModel(
             val current = history?.present ?: return@launch
             apply(MediaEdits.insertFreezeFrame(current, clipId, playhead, still, FREEZE_DURATION_US))
         }
+    }
+
+    /** Result of [EditorEvent.OpenDocument]. */
+    fun onDocumentPicked(kind: DocumentKind, uri: Uri?) {
+        if (uri == null) return
+        viewModelScope.launch {
+            when (kind) {
+                DocumentKind.Font -> {
+                    val font = fonts.import(uri)
+                    if (font == null) {
+                        notify(strings.invalidFont)
+                    } else {
+                        _state.update { it.copy(customFonts = (it.customFonts + font).distinct()) }
+                    }
+                }
+                DocumentKind.Lut -> importLut(uri)
+                DocumentKind.Srt -> {
+                    val text = readText(uri) ?: return@launch notify(strings.invalidSrt)
+                    val cues = Srt.parse(text)
+                    if (cues.isEmpty()) return@launch notify(strings.invalidSrt)
+                    val project = history?.present ?: return@launch
+                    apply(SubtitleEdits.import(project, cues))
+                    notify(strings.subtitlesImported.format(cues.size))
+                }
+            }
+        }
+    }
+
+    /** Result of [EditorEvent.CreateSrt]. */
+    fun onSrtTarget(uri: Uri?) {
+        val project = history?.present ?: return
+        if (uri == null) return
+        viewModelScope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                runCatching {
+                    contentResolver.openOutputStream(uri, "wt")?.use { it.write(SubtitleEdits.export(project).toByteArray()) } != null
+                }.getOrDefault(false)
+            }
+            notify(if (ok) strings.subtitlesExported else strings.invalidSrt)
+        }
+    }
+
+    private suspend fun importLut(uri: Uri) {
+        val clipId = lutTargetId ?: return
+        val text = readText(uri, MAX_LUT_BYTES) ?: return notify(strings.invalidLut)
+        val error = runCatching { CubeLut.parse(text) }.exceptionOrNull()
+        if (error != null) return notify(error.message ?: strings.invalidLut)
+        val file = repository.newAssetFile(projectId, "cube")
+        withContext(Dispatchers.IO) { file.writeText(text) }
+        val project = history?.present ?: return
+        val clip = project.findClip(clipId)?.second ?: return
+        apply(MediaEdits.setColorGrade(project, clipId, clip.color.copy(lutUri = Uri.fromFile(file).toString(), lutIntensity = 1f)))
+    }
+
+    private suspend fun readText(uri: Uri, maxBytes: Int = MAX_TEXT_BYTES): String? = withContext(Dispatchers.IO) {
+        runCatching {
+            contentResolver.openInputStream(uri)?.use { input ->
+                val bytes = input.readNBytes(maxBytes + 1)
+                if (bytes.size > maxBytes) null else bytes.toString(Charsets.UTF_8)
+            }
+        }.getOrNull()
     }
 
     private fun extractAudio() {
@@ -335,6 +452,12 @@ class EditorViewModel(
             GlobalTool.Edit -> pick(PickPurpose.Append)
             GlobalTool.Overlay -> pick(PickPurpose.Overlay)
             GlobalTool.Audio -> _state.update { it.copy(audioPanelOpen = true, activeSheet = null) }
+            GlobalTool.Text -> onAction(EditorAction.AddText())
+            GlobalTool.Filters -> {
+                val target = _state.value.selectedClipId ?: history?.present?.mainTrack?.clipAt(_state.value.playheadUs)?.id
+                if (target == null) notify(strings.selectClipFirst)
+                else _state.update { it.copy(selectedClipId = target, activeSheet = EditorSheet.Filters) }
+            }
             GlobalTool.Format -> _state.update { it.copy(activeSheet = EditorSheet.AspectRatio) }
             GlobalTool.Canvas -> _state.update { it.copy(activeSheet = EditorSheet.Background) }
             else -> notify(strings.comingSoon)
@@ -356,6 +479,9 @@ class EditorViewModel(
             ClipTool.Crop -> _state.update { it.copy(activeSheet = EditorSheet.Crop) }
             ClipTool.Replace -> pick(PickPurpose.Replace, clipId)
             ClipTool.Freeze -> freezeFrame(clipId)
+            ClipTool.Filters -> _state.update { it.copy(activeSheet = EditorSheet.Filters) }
+            ClipTool.Adjust -> _state.update { it.copy(activeSheet = EditorSheet.Adjust) }
+            ClipTool.EditText -> _state.update { it.copy(activeSheet = EditorSheet.Text) }
             ClipTool.Duplicate -> apply(Edits.duplicate(project, clipId))
             ClipTool.Delete -> {
                 apply(Edits.delete(project, clipId))
@@ -443,6 +569,8 @@ class EditorViewModel(
         const val MIN_FRAME_HEIGHT_PX = 720
         const val FREEZE_DURATION_US = 3_000_000L
         const val VOICE_COUNTDOWN = 3
+        const val MAX_TEXT_BYTES = 2 * 1024 * 1024
+        const val MAX_LUT_BYTES = 64 * 1024 * 1024
     }
 }
 
@@ -460,4 +588,15 @@ data class EditorStrings(
     val micUnavailable: String,
     val recordingTooShort: String,
     val voiceOverName: String,
+    val defaultText: String,
+    val selectClipFirst: String,
+    val gradeAppliedToAll: String,
+    val invalidLut: String,
+    val invalidFont: String,
+    val invalidSrt: String,
+    val noSubtitles: String,
+    val subtitleOverlaps: String,
+    /** Format string with one %d for the number of blocks. */
+    val subtitlesImported: String,
+    val subtitlesExported: String,
 )

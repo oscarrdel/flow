@@ -62,6 +62,8 @@ fun FlowNavHost(container: AppContainer) {
                             thumbnails = container.thumbnails,
                             strings = editorStrings(context),
                             recorder = VoiceRecorder(container.application),
+                            fonts = container.fontStore,
+                            contentResolver = container.application.contentResolver,
                         )
                     }
                 },
@@ -103,4 +105,14 @@ private fun editorStrings(context: Context) = EditorStrings(
     micUnavailable = context.getString(EditorR.string.editor_mic_unavailable),
     recordingTooShort = context.getString(EditorR.string.editor_recording_too_short),
     voiceOverName = context.getString(EditorR.string.editor_voice_over_name),
+    defaultText = context.getString(EditorR.string.editor_default_text),
+    selectClipFirst = context.getString(EditorR.string.editor_select_clip_first),
+    gradeAppliedToAll = context.getString(EditorR.string.editor_grade_applied_to_all),
+    invalidLut = context.getString(EditorR.string.editor_invalid_lut),
+    invalidFont = context.getString(EditorR.string.editor_invalid_font),
+    invalidSrt = context.getString(EditorR.string.editor_invalid_srt),
+    noSubtitles = context.getString(EditorR.string.editor_no_subtitles),
+    subtitleOverlaps = context.getString(EditorR.string.editor_subtitle_overlaps),
+    subtitlesImported = context.getString(EditorR.string.editor_subtitles_imported),
+    subtitlesExported = context.getString(EditorR.string.editor_subtitles_exported),
 )

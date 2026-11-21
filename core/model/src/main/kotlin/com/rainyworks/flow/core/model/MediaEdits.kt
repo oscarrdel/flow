@@ -108,4 +108,51 @@ object MediaEdits {
         if (media.type != MediaType.AUDIO || media.durationUs <= 0L) return project
         return Edits.addToLayer(project, ProjectFactory.clipFor(media).copy(startUs = atUs.coerceAtLeast(0L)), TrackKind.AUDIO)
     }
+
+    /** Adds a text clip at [atUs]; returns the new project and the clip id. */
+    fun addText(project: Project, atUs: Long, content: TextContent, durationUs: Long = DEFAULT_TEXT_DURATION_US): Pair<Project, String> {
+        val clip = Clip(
+            id = Edits.newId(),
+            kind = ClipKind.TEXT,
+            startUs = atUs.coerceAtLeast(0L),
+            trimOutUs = durationUs,
+            text = content,
+        )
+        return Edits.addToLayer(project, clip, TrackKind.TEXT) to clip.id
+    }
+
+    /** Adds an adjustment layer covering [durationUs] (or the rest of the project) from [atUs]. */
+    fun addAdjustmentLayer(project: Project, atUs: Long): Pair<Project, String> {
+        val start = atUs.coerceAtLeast(0L)
+        val duration = (project.durationUs - start).takeIf { it >= Edits.MIN_CLIP_US } ?: DEFAULT_TEXT_DURATION_US
+        val clip = Clip(id = Edits.newId(), kind = ClipKind.ADJUSTMENT, startUs = start, trimOutUs = duration)
+        return Edits.addToLayer(project, clip, TrackKind.ADJUSTMENT) to clip.id
+    }
+
+    fun setColorGrade(project: Project, clipId: String, grade: ColorGrade): Project =
+        Edits.updateClip(project, clipId) { it.copy(color = grade) }
+
+    /** Copies one clip's grade to every video and image clip on the main track. */
+    fun applyGradeToMain(project: Project, fromClipId: String): Project {
+        val grade = project.findClip(fromClipId)?.second?.color ?: return project
+        val main = project.mainTrack
+        if (main.locked) return project
+        return project.replaceTrack(main.copy(clips = main.clips.map { it.copy(color = grade) }))
+    }
+
+    fun setTextContent(project: Project, clipId: String, content: TextContent): Project =
+        Edits.updateClip(project, clipId) { if (it.kind == ClipKind.TEXT) it.copy(text = content) else it }
+
+    /** Moves and retimes a subtitle block and updates its text. */
+    fun updateSubtitle(project: Project, clipId: String, cue: SubtitleCue): Project {
+        val (track, clip) = project.findClip(clipId) ?: return project
+        if (track.locked || clip.text == null) return project
+        val duration = cue.endUs - cue.startUs
+        if (duration < Edits.MIN_CLIP_US || cue.text.isBlank()) return project
+        val updated = clip.copy(startUs = cue.startUs.coerceAtLeast(0L), trimInUs = 0L, trimOutUs = duration, text = clip.text.copy(text = cue.text))
+        if (!track.isFree(updated.startUs, updated.endUs, ignoreClipId = clipId)) return project
+        return project.replaceTrack(track.withClips(track.clips.map { if (it.id == clipId) updated else it }))
+    }
+
+    const val DEFAULT_TEXT_DURATION_US = 3_000_000L
 }

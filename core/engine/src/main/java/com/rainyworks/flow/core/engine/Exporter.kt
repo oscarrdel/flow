@@ -9,9 +9,12 @@ import android.os.SystemClock
 import android.provider.MediaStore
 import androidx.annotation.OptIn
 import androidx.media3.common.MimeTypes
+import androidx.media3.common.util.Clock
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.transformer.AudioEncoderSettings
 import androidx.media3.transformer.Composition
+import androidx.media3.transformer.DefaultAssetLoaderFactory
+import androidx.media3.transformer.DefaultDecoderFactory
 import androidx.media3.transformer.DefaultEncoderFactory
 import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
@@ -116,6 +119,15 @@ class Exporter(context: Context) {
             .setVideoMimeType(videoMime)
             .setAudioMimeType(MimeTypes.AUDIO_AAC)
             .setEncoderFactory(encoder)
+            .apply {
+                if (GoldfishAvc.affectedDevice) {
+                    val decoder = DefaultDecoderFactory.Builder(app)
+                        .setMediaCodecSelector(GoldfishAvc.selector)
+                        .setEnableDecoderFallback(true)
+                        .build()
+                    setAssetLoaderFactory(DefaultAssetLoaderFactory(app, decoder, Clock.DEFAULT, null))
+                }
+            }
             .addListener(object : Transformer.Listener {
                 override fun onCompleted(composition: Composition, exportResult: ExportResult) {
                     completed.complete(Unit)

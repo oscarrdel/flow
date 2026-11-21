@@ -26,4 +26,6 @@ dependencies {
     api(libs.androidx.media3.effect)
     implementation(libs.kotlinx.coroutines.android)
     testImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.androidx.espresso.core)
 }

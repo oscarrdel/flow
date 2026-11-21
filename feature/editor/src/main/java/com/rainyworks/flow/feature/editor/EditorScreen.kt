@@ -15,7 +15,9 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -82,6 +84,14 @@ fun EditorScreen(
         viewModel.onMicPermissionResult(granted)
     }
 
+    var pendingDocument by remember { mutableStateOf(DocumentKind.Srt) }
+    val documentPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        viewModel.onDocumentPicked(pendingDocument, uri)
+    }
+    val srtCreator = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/x-subrip")) { uri ->
+        viewModel.onSrtTarget(uri)
+    }
+
     LaunchedEffect(viewModel) {
         viewModel.events.collect { event ->
             when (event) {
@@ -94,6 +104,12 @@ fun EditorScreen(
                 }
                 EditorEvent.Closed -> close()
                 is EditorEvent.OpenExport -> export(event.projectId)
+                is EditorEvent.OpenDocument -> {
+                    pendingDocument = event.kind
+                    // Many file managers report .cube, .srt and font files as generic binaries.
+                    documentPicker.launch(arrayOf("*/*"))
+                }
+                is EditorEvent.CreateSrt -> srtCreator.launch(event.suggestedName)
                 EditorEvent.RequestMicPermission -> micPermission.launch(Manifest.permission.RECORD_AUDIO)
                 EditorEvent.Tick -> haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
             }

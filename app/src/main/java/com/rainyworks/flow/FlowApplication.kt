@@ -25,6 +25,7 @@ class FlowApplication : Application(), ExportManagerHolder {
 class AppContainer(val application: Application) {
     private val data = DataModule(application)
     val projectRepository get() = data.projectRepository
+    val fontStore get() = data.fontStore
 
     val mediaProbe by lazy { MediaProbe(application) }
     val thumbnails by lazy { ThumbnailProvider(application) }
