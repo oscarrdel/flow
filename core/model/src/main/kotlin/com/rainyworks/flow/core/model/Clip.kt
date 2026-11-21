@@ -46,7 +46,8 @@ data class Clip(
     /** Maps a timeline time inside this clip to the corresponding time inside the source. */
     fun sourceTimeAt(timelineUs: Long): Long {
         val offset = ((timelineUs - startUs).coerceIn(0L, durationUs) * speed.toDouble()).roundToLong()
-        return if (reversed) trimOutUs - offset else trimInUs + offset
+        val sourceUs = if (reversed) trimOutUs - offset else trimInUs + offset
+        return sourceUs.coerceIn(trimInUs, trimOutUs)
     }
 
     fun contains(timelineUs: Long): Boolean = timelineUs in startUs until endUs

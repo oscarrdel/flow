@@ -20,6 +20,7 @@ object Edits {
     fun insertIntoMain(project: Project, clips: List<Clip>, atUs: Long? = null): Project {
         if (clips.isEmpty()) return project
         val main = project.mainTrack
+        if (main.locked) return project
         val index = if (atUs == null) main.clips.size else insertionIndex(main, atUs)
         val newClips = main.clips.toMutableList().apply { addAll(index, clips) }
         var updated = project.replaceTrack(main.copy(clips = layoutMagnetic(newClips)))
@@ -39,8 +40,8 @@ object Edits {
     /** Adds a clip to a free-placement track, creating a new track of [kind] when needed. */
     fun addToLayer(project: Project, clip: Clip, kind: TrackKind, trackId: String? = null): Project {
         require(kind != TrackKind.MAIN) { "Use insertIntoMain for the main track" }
-        val existing = trackId?.let(project::track)
-            ?: project.tracks.firstOrNull { it.kind == kind && it.isFree(clip.startUs, clip.endUs) }
+        val existing = trackId?.let(project::track)?.takeIf { !it.locked && it.kind == kind }
+            ?: project.tracks.firstOrNull { it.kind == kind && !it.locked && it.isFree(clip.startUs, clip.endUs) }
         return if (existing != null && existing.isFree(clip.startUs, clip.endUs)) {
             project.replaceTrack(existing.copy(clips = (existing.clips + clip).sortedBy { it.startUs }))
         } else {
@@ -70,16 +71,26 @@ object Edits {
         if (track.locked) return project
         val minStart = if (track.isMagnetic) clip.startUs - maxExtensionAtStart(clip) else
             maxOf(previousEnd(track, clip), clip.startUs - maxExtensionAtStart(clip))
-        val start = newStartUs.coerceIn(minStart, clip.endUs - MIN_CLIP_US)
-        val sourceDelta = ((start - clip.startUs) * clip.speed.toDouble()).roundToLong()
-        val trimmed = if (!clip.reversed) {
-            clip.copy(startUs = start, trimInUs = clip.trimInUs + sourceDelta)
-        } else {
-            clip.copy(startUs = start, trimOutUs = clip.trimOutUs - sourceDelta)
+        val maxStart = clip.endUs - MIN_CLIP_US
+        if (minStart > maxStart) return project
+        val start = newStartUs.coerceIn(minStart, maxStart)
+        val trimmed = when {
+            clip.hasUnboundedSource -> clip.copy(
+                startUs = start,
+                trimInUs = 0L,
+                trimOutUs = ((clip.endUs - start) * clip.speed.toDouble()).roundToLong(),
+            )
+            !clip.reversed -> {
+                val sourceDelta = ((start - clip.startUs) * clip.speed.toDouble()).roundToLong()
+                clip.copy(startUs = start, trimInUs = (clip.trimInUs + sourceDelta).coerceAtLeast(0L))
+            }
+            else -> {
+                val sourceDelta = ((start - clip.startUs) * clip.speed.toDouble()).roundToLong()
+                clip.copy(startUs = start, trimOutUs = (clip.trimOutUs - sourceDelta).coerceAtMost(mediaDuration(clip)))
+            }
         }
         if (trimmed.sourceDurationUs <= 0L) return project
-        val normalized = if (trimmed.trimInUs < 0L) trimmed.copy(trimInUs = 0L) else trimmed
-        return project.replaceTrack(track.withClips(track.clips.map { if (it.id == clipId) normalized else it }))
+        return project.replaceTrack(track.withClips(track.clips.map { if (it.id == clipId) trimmed else it }))
     }
 
     /** Moves the clip's right edge to [newEndUs] (timeline time), keeping its left edge fixed. */
@@ -88,10 +99,14 @@ object Edits {
         if (track.locked) return project
         val maxEnd = if (track.isMagnetic) clip.endUs + maxExtensionAtEnd(clip) else
             minOf(nextStart(track, clip), clip.endUs + maxExtensionAtEnd(clip))
-        val end = newEndUs.coerceIn(clip.startUs + MIN_CLIP_US, maxEnd)
+        val minEnd = clip.startUs + MIN_CLIP_US
+        if (minEnd > maxEnd) return project
+        val end = newEndUs.coerceIn(minEnd, maxEnd)
         val sourceDelta = ((end - clip.endUs) * clip.speed.toDouble()).roundToLong()
-        val trimmed = if (!clip.reversed) {
-            clip.copy(trimOutUs = clip.trimOutUs + sourceDelta)
+        val trimmed = if (clip.hasUnboundedSource) {
+            clip.copy(trimInUs = 0L, trimOutUs = ((end - clip.startUs) * clip.speed.toDouble()).roundToLong())
+        } else if (!clip.reversed) {
+            clip.copy(trimOutUs = (clip.trimOutUs + sourceDelta).coerceAtMost(mediaDuration(clip)))
         } else {
             clip.copy(trimInUs = (clip.trimInUs - sourceDelta).coerceAtLeast(0L))
         }
@@ -148,9 +163,11 @@ object Edits {
         if (fromTrack.isMagnetic || toTrack.isMagnetic || fromTrack.locked || toTrack.locked) return project
         val moved = clip.copy(startUs = toStartUs.coerceAtLeast(0L))
         if (!toTrack.isFree(moved.startUs, moved.endUs, ignoreClipId = clipId)) return project
-        val withoutClip = delete(project, clipId)
-        val destination = withoutClip.track(toTrackId) ?: return project
-        return withoutClip.replaceTrack(destination.copy(clips = (destination.clips + moved).sortedBy { it.startUs }))
+        val tracks = project.tracks.mapNotNull { track ->
+            val clips = track.clips.filterNot { it.id == clipId }.let { if (track.id == toTrackId) it + moved else it }
+            if (clips.isEmpty() && !track.isMagnetic) null else track.copy(clips = clips.sortedBy { it.startUs })
+        }
+        return project.copy(tracks = tracks)
     }
 
     fun setSpeed(project: Project, clipId: String, speed: Float): Project {
