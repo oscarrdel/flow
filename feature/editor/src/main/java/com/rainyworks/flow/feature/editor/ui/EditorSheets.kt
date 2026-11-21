@@ -13,13 +13,18 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.BlurOn
+import androidx.compose.material.icons.rounded.Flip
+import androidx.compose.material.icons.rounded.RestartAlt
+import androidx.compose.material.icons.rounded.Rotate90DegreesCw
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -27,13 +32,20 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.rainyworks.flow.core.designsystem.components.FlowBottomPanel
 import com.rainyworks.flow.core.designsystem.components.FlowLabeledSlider
@@ -42,9 +54,13 @@ import com.rainyworks.flow.core.designsystem.theme.FlowTheme
 import com.rainyworks.flow.core.designsystem.theme.FlowTypography
 import com.rainyworks.flow.core.model.AspectRatio
 import com.rainyworks.flow.core.model.CanvasBackground
+import com.rainyworks.flow.core.model.Clip
+import com.rainyworks.flow.core.model.CropRect
+import com.rainyworks.flow.core.model.Transform
 import com.rainyworks.flow.feature.editor.EditorAction
 import com.rainyworks.flow.feature.editor.EditorSheet
 import com.rainyworks.flow.feature.editor.EditorUiState
+import com.rainyworks.flow.feature.editor.TimelineMediaSource
 import java.util.Locale
 import kotlin.math.log10
 import kotlin.math.pow
@@ -52,6 +68,8 @@ import kotlin.math.roundToInt
 
 private const val MIN_SHEET_SPEED = 0.1f
 private const val MAX_SHEET_SPEED = 10f
+private const val CROP_FRAME_QUANTUM_US = 100_000L
+private val CROP_EDITOR_HEIGHT = 168.dp
 
 /**
  * Anchored bottom panel for the currently active [EditorSheet].
@@ -60,6 +78,7 @@ private const val MAX_SHEET_SPEED = 10f
 internal fun EditorActiveSheet(
     sheet: EditorSheet,
     state: EditorUiState,
+    mediaSource: TimelineMediaSource,
     onAction: (EditorAction) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -85,7 +104,394 @@ internal fun EditorActiveSheet(
             onAction = onAction,
             modifier = modifier,
         )
+        EditorSheet.Transform -> TransformSheetPanel(
+            state = state,
+            onAction = onAction,
+            modifier = modifier,
+        )
+        EditorSheet.Crop -> CropSheetPanel(
+            state = state,
+            mediaSource = mediaSource,
+            onAction = onAction,
+            modifier = modifier,
+        )
+        EditorSheet.Opacity -> OpacitySheetPanel(
+            state = state,
+            onAction = onAction,
+            modifier = modifier,
+        )
     }
+}
+
+@Composable
+private fun rememberSelectedClip(state: EditorUiState): Clip? {
+    val project = state.project
+    val clipId = state.selectedClipId
+    return remember(project, clipId) { clipId?.let { project?.findClip(it)?.second } }
+}
+
+/** Slider keeping its own value while dragging; reports `final = true` when released. */
+@Composable
+private fun SheetSlider(
+    label: String,
+    value: Float,
+    valueRange: ClosedFloatingPointRange<Float>,
+    valueText: (Float) -> String,
+    enabled: Boolean,
+    onValueChange: (value: Float, final: Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var local by remember(value) { mutableFloatStateOf(value) }
+    FlowLabeledSlider(
+        label = label,
+        valueText = valueText(local),
+        value = local,
+        valueRange = valueRange,
+        enabled = enabled,
+        onValueChange = {
+            local = it
+            onValueChange(it, false)
+        },
+        onValueChangeFinished = { onValueChange(local, true) },
+        modifier = modifier,
+    )
+}
+
+@Composable
+private fun TransformSheetPanel(
+    state: EditorUiState,
+    onAction: (EditorAction) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val spacing = FlowTheme.spacing
+    val clip = rememberSelectedClip(state)
+    val clipId = clip?.id
+    val enabled = clipId != null
+    val transform = clip?.transform ?: Transform()
+    val currentTransform by rememberUpdatedState(transform)
+
+    fun emit(updated: Transform, final: Boolean) {
+        val targetId = clipId ?: return
+        onAction(EditorAction.SetTransform(targetId, updated, final))
+    }
+
+    FlowBottomPanel(
+        title = "Ajustar",
+        subtitle = "Posición, escala y rotación del clip",
+        onDismiss = { onAction(EditorAction.DismissSheet) },
+        modifier = modifier,
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(spacing.md)) {
+            SheetSlider(
+                label = "Posición X",
+                value = transform.offsetX.coerceIn(-1f, 1f),
+                valueRange = -1f..1f,
+                valueText = ::formatSignedPercent,
+                enabled = enabled,
+                onValueChange = { v, final -> emit(currentTransform.copy(offsetX = v), final) },
+                modifier = Modifier.weight(1f),
+            )
+            SheetSlider(
+                label = "Posición Y",
+                value = transform.offsetY.coerceIn(-1f, 1f),
+                valueRange = -1f..1f,
+                valueText = ::formatSignedPercent,
+                enabled = enabled,
+                onValueChange = { v, final -> emit(currentTransform.copy(offsetY = v), final) },
+                modifier = Modifier.weight(1f),
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(spacing.md)) {
+            SheetSlider(
+                label = "Escala",
+                value = transform.scale.coerceIn(MIN_TRANSFORM_SCALE, MAX_TRANSFORM_SCALE),
+                valueRange = MIN_TRANSFORM_SCALE..MAX_TRANSFORM_SCALE,
+                valueText = { "${(it * 100f).roundToInt()}%" },
+                enabled = enabled,
+                onValueChange = { v, final -> emit(currentTransform.copy(scale = v), final) },
+                modifier = Modifier.weight(1f),
+            )
+            SheetSlider(
+                label = "Rotación",
+                value = normalizeDegrees(transform.rotationDegrees),
+                valueRange = -180f..180f,
+                valueText = { "${it.roundToInt()}°" },
+                enabled = enabled,
+                onValueChange = { v, final -> emit(currentTransform.copy(rotationDegrees = v), final) },
+                modifier = Modifier.weight(1f),
+            )
+        }
+
+        Spacer(Modifier.height(spacing.xs))
+
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(spacing.sm),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SheetActionChip(
+                label = "Girar 90°",
+                icon = Icons.Rounded.Rotate90DegreesCw,
+                enabled = enabled,
+                onClick = {
+                    val rotated = normalizeDegrees(currentTransform.rotationDegrees + 90f)
+                    emit(currentTransform.copy(rotationDegrees = rotated), true)
+                },
+            )
+            SheetActionChip(
+                label = "Voltear H",
+                icon = Icons.Rounded.Flip,
+                enabled = enabled,
+                selected = transform.flipHorizontal,
+                onClick = {
+                    emit(currentTransform.copy(flipHorizontal = !currentTransform.flipHorizontal), true)
+                },
+            )
+            SheetActionChip(
+                label = "Voltear V",
+                icon = Icons.Rounded.Flip,
+                iconRotation = 90f,
+                enabled = enabled,
+                selected = transform.flipVertical,
+                onClick = {
+                    emit(currentTransform.copy(flipVertical = !currentTransform.flipVertical), true)
+                },
+            )
+            SheetActionChip(
+                label = "Restablecer",
+                icon = Icons.Rounded.RestartAlt,
+                enabled = enabled,
+                onClick = { emit(Transform(crop = currentTransform.crop), true) },
+            )
+        }
+    }
+}
+
+private data class CropAspectOption(
+    val label: String,
+    val ratio: AspectRatio? = null,
+    val original: Boolean = false,
+) {
+    /**
+     * Width/height proportion in normalized frame space (the pixel ratio corrected by the
+     * source aspect), or null for a free crop.
+     */
+    fun normalizedRatio(sourceAspect: Float): Float? = when {
+        original -> 1f
+        ratio != null -> ratio.value / sourceAspect
+        else -> null
+    }
+}
+
+private val CropAspectOptions = listOf(
+    CropAspectOption("Libre"),
+    CropAspectOption("Original", original = true),
+    CropAspectOption("9:16", AspectRatio.R9_16),
+    CropAspectOption("16:9", AspectRatio.R16_9),
+    CropAspectOption("1:1", AspectRatio.R1_1),
+    CropAspectOption("4:5", AspectRatio.R4_5),
+    CropAspectOption("21:9", AspectRatio.R21_9),
+)
+
+@Composable
+private fun CropSheetPanel(
+    state: EditorUiState,
+    mediaSource: TimelineMediaSource,
+    onAction: (EditorAction) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val spacing = FlowTheme.spacing
+    val density = LocalDensity.current
+    val clip = rememberSelectedClip(state)
+    val clipId = clip?.id
+    val media = clip?.media
+    val enabled = clipId != null
+    val transform = clip?.transform ?: Transform()
+    val currentTransform by rememberUpdatedState(transform)
+
+    val sourceWidth = media?.displayWidth?.takeIf { it > 0 }?.toFloat() ?: 1f
+    val sourceHeight = media?.displayHeight?.takeIf { it > 0 }?.toFloat() ?: 1f
+    val sourceAspect = sourceWidth / sourceHeight
+
+    var selectedOption by remember(clipId) { mutableStateOf(CropAspectOptions.first()) }
+    val lockedRatio = selectedOption.normalizedRatio(sourceAspect)
+
+    val sourceTimeUs = clip?.let { it.freezeAtUs ?: it.sourceTimeAt(state.playheadUs) } ?: 0L
+    val quantizedSourceUs = (sourceTimeUs / CROP_FRAME_QUANTUM_US) * CROP_FRAME_QUANTUM_US
+    val frameHeightPx = with(density) { CROP_EDITOR_HEIGHT.roundToPx() }
+    val frame by produceState<ImageBitmap?>(
+        initialValue = null,
+        key1 = media?.uri,
+        key2 = quantizedSourceUs,
+        key3 = frameHeightPx,
+    ) {
+        value = media?.takeIf { it.hasVideo }?.let { mediaSource.thumbnail(it, quantizedSourceUs, frameHeightPx) }
+    }
+
+    fun emitCrop(crop: CropRect, final: Boolean) {
+        val targetId = clipId ?: return
+        onAction(EditorAction.SetTransform(targetId, currentTransform.copy(crop = crop), final))
+    }
+
+    FlowBottomPanel(
+        title = "Recortar",
+        subtitle = "Arrastra las esquinas, los bordes o el centro",
+        onDismiss = { onAction(EditorAction.DismissSheet) },
+        headerTrailing = {
+            SheetActionChip(
+                label = "Restablecer",
+                icon = Icons.Rounded.RestartAlt,
+                enabled = enabled && transform.crop != CropRect.Full,
+                onClick = {
+                    selectedOption = CropAspectOptions.first()
+                    emitCrop(CropRect.Full, true)
+                },
+            )
+        },
+        modifier = modifier,
+    ) {
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(spacing.sm),
+        ) {
+            items(CropAspectOptions, key = { it.label }) { option ->
+                FilterChip(
+                    selected = option == selectedOption,
+                    enabled = enabled,
+                    onClick = {
+                        selectedOption = option
+                        val ratio = option.normalizedRatio(sourceAspect)
+                        if (ratio != null) {
+                            emitCrop(fitCropToRatio(currentTransform.crop, ratio), true)
+                        }
+                    },
+                    label = {
+                        Text(
+                            text = option.label,
+                            style = FlowTypography.labelMedium,
+                        )
+                    },
+                    colors = sheetChipColors(),
+                )
+            }
+        }
+
+        Spacer(Modifier.height(spacing.sm))
+
+        CropFrameEditor(
+            frame = frame,
+            sourceAspect = sourceAspect,
+            crop = transform.crop,
+            lockedRatio = lockedRatio,
+            enabled = enabled,
+            onCropChange = ::emitCrop,
+            height = CROP_EDITOR_HEIGHT,
+        )
+    }
+}
+
+@Composable
+private fun OpacitySheetPanel(
+    state: EditorUiState,
+    onAction: (EditorAction) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val spacing = FlowTheme.spacing
+    val clip = rememberSelectedClip(state)
+    val clipId = clip?.id
+    val opacity = (clip?.opacity ?: 1f).coerceIn(0f, 1f)
+    val presets = remember { listOf(0.25f, 0.5f, 0.75f, 1f) }
+
+    fun emit(value: Float, final: Boolean) {
+        val targetId = clipId ?: return
+        onAction(EditorAction.SetOpacity(targetId, (value * 100f).roundToInt() / 100f, final))
+    }
+
+    FlowBottomPanel(
+        title = "Opacidad",
+        subtitle = "Transparencia del clip sobre las capas inferiores",
+        onDismiss = { onAction(EditorAction.DismissSheet) },
+        modifier = modifier,
+    ) {
+        SheetSlider(
+            label = "Opacidad",
+            value = opacity,
+            valueRange = 0f..1f,
+            valueText = { "${(it * 100f).roundToInt()}%" },
+            enabled = clipId != null,
+            onValueChange = ::emit,
+        )
+
+        Spacer(Modifier.height(spacing.xs))
+
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(spacing.sm),
+            contentPadding = PaddingValues(vertical = spacing.xs),
+        ) {
+            items(presets, key = { it }) { preset ->
+                FilterChip(
+                    selected = kotlin.math.abs(opacity - preset) < 0.01f,
+                    enabled = clipId != null,
+                    onClick = { emit(preset, true) },
+                    label = {
+                        Text(
+                            text = "${(preset * 100f).roundToInt()}%",
+                            style = FlowTypography.labelMedium,
+                        )
+                    },
+                    colors = sheetChipColors(),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SheetActionChip(
+    label: String,
+    icon: ImageVector,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    selected: Boolean = false,
+    iconRotation: Float = 0f,
+) {
+    FilterChip(
+        selected = selected,
+        enabled = enabled,
+        onClick = onClick,
+        leadingIcon = {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier
+                    .size(16.dp)
+                    .rotate(iconRotation),
+            )
+        },
+        label = {
+            Text(
+                text = label,
+                style = FlowTypography.labelMedium,
+            )
+        },
+        colors = sheetChipColors(),
+        modifier = modifier,
+    )
+}
+
+@Composable
+private fun sheetChipColors() = FilterChipDefaults.filterChipColors(
+    containerColor = FlowColors.Slate,
+    labelColor = FlowColors.TextPrimary,
+    iconColor = FlowColors.TextSecondary,
+    selectedContainerColor = FlowColors.AccentDim,
+    selectedLabelColor = FlowColors.Accent,
+    selectedLeadingIconColor = FlowColors.Accent,
+)
+
+private fun formatSignedPercent(value: Float): String {
+    val percent = (value * 100f).roundToInt()
+    return if (percent > 0) "+$percent%" else "$percent%"
 }
 
 @Composable

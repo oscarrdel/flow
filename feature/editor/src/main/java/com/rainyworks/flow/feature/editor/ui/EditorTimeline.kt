@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -40,7 +41,6 @@ import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -111,12 +111,14 @@ private const val WAVEFORM_BUCKETS_PER_SEC = 20
  * Multi-track timeline with a fixed center playhead, pinch-to-zoom, horizontal scrub,
  * adaptive ruler with markers, lazy clip thumbnail strips, audio waveforms, edge trimming
  * with haptic snap, and long-press clip reordering on the main track.
+ *
+ * [playheadUs] is read lazily: horizontal positions are resolved in the layout and draw
+ * phases, so playback only re-lays out and redraws instead of recomposing every clip.
  */
 @Composable
 internal fun EditorTimeline(
     project: Project?,
-    playheadUs: Long,
-    isPlaying: Boolean,
+    playheadUs: () -> Long,
     selectedClipId: String?,
     pixelsPerSecond: Float,
     onAction: (EditorAction) -> Unit,
@@ -133,26 +135,22 @@ internal fun EditorTimeline(
     val ppsPx = with(density) { clampedPps.dp.toPx() }.coerceAtLeast(1f)
     val maxTimelineUs = maxOf(project?.durationUs ?: 0L, 5_000_000L)
 
-    // Local scrub playhead tracks user drag immediately while staying synchronized with state.playheadUs.
+    // Local scrub playhead tracks user drag immediately; otherwise the external playhead is used.
     var isScrubbing by remember { mutableStateOf(false) }
-    var scrubPlayheadUs by remember { mutableLongStateOf(playheadUs) }
-    LaunchedEffect(playheadUs, isPlaying) {
-        if (!isScrubbing) {
-            scrubPlayheadUs = playheadUs
-        }
+    var scrubPlayheadUs by remember { mutableLongStateOf(0L) }
+    val externalPlayheadUs by rememberUpdatedState(playheadUs)
+    val activePlayheadUs: () -> Long = remember {
+        { if (isScrubbing) scrubPlayheadUs else externalPlayheadUs() }
     }
-    val activePlayheadUs = if (isScrubbing) scrubPlayheadUs else playheadUs
 
     val currentOnAction by rememberUpdatedState(onAction)
     val currentPps by rememberUpdatedState(clampedPps)
     val currentPpsPx by rememberUpdatedState(ppsPx)
-    val currentPlayheadUs by rememberUpdatedState(activePlayheadUs)
     val currentMaxTimelineUs by rememberUpdatedState(maxTimelineUs)
 
-    // Precompute snap points (playhead + all clip boundaries) for trim haptic feedback
-    val snapPointsUs = remember(project, activePlayheadUs) {
+    // Clip boundaries used as trim snap points; the playhead is added when a trim happens.
+    val snapPointsUs = remember(project) {
         buildList {
-            add(activePlayheadUs)
             project?.tracks?.forEach { track ->
                 track.clips.forEach { clip ->
                     add(clip.startUs)
@@ -176,7 +174,7 @@ internal fun EditorTimeline(
                 awaitEachGesture {
                     awaitFirstDown(requireUnconsumed = false)
                     var scrubbingGesture = false
-                    var latestScrubUs = currentPlayheadUs
+                    var latestScrubUs = activePlayheadUs()
                     var zoomAccumulator = currentPps
 
                     do {
@@ -201,8 +199,9 @@ internal fun EditorTimeline(
                             if (abs(pan.x) > 0.5f && abs(pan.x) >= abs(pan.y) * 0.7f) {
                                 if (!scrubbingGesture) {
                                     scrubbingGesture = true
+                                    latestScrubUs = activePlayheadUs()
+                                    scrubPlayheadUs = latestScrubUs
                                     isScrubbing = true
-                                    latestScrubUs = currentPlayheadUs
                                 }
                                 val deltaUs = ((-pan.x / currentPpsPx) * Timecode.US_PER_SECOND).roundToLong()
                                 latestScrubUs = (latestScrubUs + deltaUs).coerceIn(0L, currentMaxTimelineUs)
@@ -223,13 +222,12 @@ internal fun EditorTimeline(
         val viewportWidthPx = constraints.maxWidth.toFloat().coerceAtLeast(1f)
         val centerOffsetPx = viewportWidthPx / 2f
 
-        // Derived visible time range so only on-screen ticks and thumbnails are computed.
-        val visibleRangeUs by remember(activePlayheadUs, viewportWidthPx, ppsPx) {
-            derivedStateOf {
-                val halfWindowUs = ((viewportWidthPx / 2f) / ppsPx * Timecode.US_PER_SECOND).toLong() + 1_500_000L
-                val start = (activePlayheadUs - halfWindowUs).coerceAtLeast(0L)
-                val end = activePlayheadUs + halfWindowUs
-                start..end
+        // Visible time range around the playhead, evaluated lazily by its readers.
+        val halfWindowUs = ((viewportWidthPx / 2f) / ppsPx * Timecode.US_PER_SECOND).toLong() + 1_500_000L
+        val visibleRangeUs: () -> LongRange = remember(halfWindowUs) {
+            {
+                val playhead = activePlayheadUs()
+                (playhead - halfWindowUs).coerceAtLeast(0L)..(playhead + halfWindowUs)
             }
         }
 
@@ -323,11 +321,11 @@ private fun FixedCenterPlayhead(modifier: Modifier = Modifier) {
 
 @Composable
 private fun TimelineRuler(
-    playheadUs: Long,
+    playheadUs: () -> Long,
     pixelsPerSecond: Float,
     ppsPx: Float,
     centerOffsetPx: Float,
-    visibleRangeUs: LongRange,
+    visibleRangeUs: () -> LongRange,
     markers: List<Marker>,
     modifier: Modifier = Modifier,
 ) {
@@ -349,12 +347,14 @@ private fun TimelineRuler(
         modifier = modifier
             .background(FlowColors.Graphite),
     ) {
-        val firstTickUs = (visibleRangeUs.first / minorStepUs) * minorStepUs
-        val lastTickUs = visibleRangeUs.last
+        val playhead = playheadUs()
+        val range = visibleRangeUs()
+        val firstTickUs = (range.first / minorStepUs) * minorStepUs
+        val lastTickUs = range.last
 
         var tickUs = firstTickUs
         while (tickUs <= lastTickUs) {
-            val x = centerOffsetPx + ((tickUs - playheadUs).toDouble() / Timecode.US_PER_SECOND * ppsPx).toFloat()
+            val x = centerOffsetPx + ((tickUs - playhead).toDouble() / Timecode.US_PER_SECOND * ppsPx).toFloat()
             if (x in -40f..(size.width + 40f)) {
                 val isMajor = tickUs % majorStepUs == 0L
                 val tickHeight = if (isMajor) 10.dp.toPx() else 5.dp.toPx()
@@ -382,9 +382,9 @@ private fun TimelineRuler(
         val triHalfWidth = 5.dp.toPx()
         val triHeight = 8.dp.toPx()
         for (marker in markers) {
-            if (marker.timeUs in visibleRangeUs) {
+            if (marker.timeUs in range) {
                 val markerX = centerOffsetPx +
-                    ((marker.timeUs - playheadUs).toDouble() / Timecode.US_PER_SECOND * ppsPx).toFloat()
+                    ((marker.timeUs - playhead).toDouble() / Timecode.US_PER_SECOND * ppsPx).toFloat()
                 val path = Path().apply {
                     moveTo(markerX - triHalfWidth, size.height - triHeight)
                     lineTo(markerX + triHalfWidth, size.height - triHeight)
@@ -425,10 +425,10 @@ private fun formatRulerLabel(timeUs: Long, majorStepUs: Long): String {
 @Composable
 private fun MainTrackLane(
     track: Track,
-    playheadUs: Long,
+    playheadUs: () -> Long,
     ppsPx: Float,
     centerOffsetPx: Float,
-    visibleRangeUs: LongRange,
+    visibleRangeUs: () -> LongRange,
     selectedClipId: String?,
     snapPointsUs: List<Long>,
     mediaSource: TimelineMediaSource,
@@ -460,8 +460,10 @@ private fun MainTrackLane(
                     .toFloat()
                     .coerceAtLeast(with(density) { 18.dp.toPx() })
                 val clipWidthDp = with(density) { clipWidthPx.toDp() }
-                val baseStartPx = centerOffsetPx +
-                    ((clip.startUs - playheadUs).toDouble() / Timecode.US_PER_SECOND * ppsPx).toFloat()
+                val baseStartPx: () -> Float = {
+                    centerOffsetPx +
+                        ((clip.startUs - playheadUs()).toDouble() / Timecode.US_PER_SECOND * ppsPx).toFloat()
+                }
 
                 val currentClips by rememberUpdatedState(track.clips)
                 val currentOnAction by rememberUpdatedState(onAction)
@@ -473,7 +475,6 @@ private fun MainTrackLane(
                     trackHeight = MAIN_TRACK_HEIGHT,
                     clipWidthDp = clipWidthDp,
                     clipWidthPx = clipWidthPx,
-                    baseStartPx = baseStartPx,
                     playheadUs = playheadUs,
                     ppsPx = ppsPx,
                     visibleRangeUs = visibleRangeUs,
@@ -485,7 +486,7 @@ private fun MainTrackLane(
                         .zIndex(if (isBeingReordered) 10f else if (isSelected) 5f else 1f)
                         .offset {
                             IntOffset(
-                                x = (baseStartPx + if (isBeingReordered) dragOffsetPx else 0f).roundToInt(),
+                                x = (baseStartPx() + if (isBeingReordered) dragOffsetPx else 0f).roundToInt(),
                                 y = 0,
                             )
                         }
@@ -533,13 +534,17 @@ private fun MainTrackLane(
         }
 
         // "+" button at the end of the MAIN track to emit AddMedia
-        val addButtonX = centerOffsetPx +
-            ((track.endUs - playheadUs).toDouble() / Timecode.US_PER_SECOND * ppsPx).toFloat() +
-            with(density) { 10.dp.toPx() }
+        val addButtonGapPx = with(density) { 10.dp.toPx() }
+        val trackEndUs = track.endUs
 
         Box(
             modifier = Modifier
-                .offset { IntOffset(addButtonX.roundToInt(), 0) }
+                .offset {
+                    val x = centerOffsetPx +
+                        ((trackEndUs - playheadUs()).toDouble() / Timecode.US_PER_SECOND * ppsPx).toFloat() +
+                        addButtonGapPx
+                    IntOffset(x.roundToInt(), 0)
+                }
                 .align(Alignment.CenterStart)
                 .size(36.dp)
                 .clip(RoundedCornerShape(10.dp))
@@ -571,10 +576,10 @@ private fun computeReorderTargetIndex(
 @Composable
 private fun SecondaryTrackLane(
     track: Track,
-    playheadUs: Long,
+    playheadUs: () -> Long,
     ppsPx: Float,
     centerOffsetPx: Float,
-    visibleRangeUs: LongRange,
+    visibleRangeUs: () -> LongRange,
     selectedClipId: String?,
     snapPointsUs: List<Long>,
     mediaSource: TimelineMediaSource,
@@ -595,8 +600,10 @@ private fun SecondaryTrackLane(
                     .toFloat()
                     .coerceAtLeast(with(density) { 16.dp.toPx() })
                 val clipWidthDp = with(density) { clipWidthPx.toDp() }
-                val baseStartPx = centerOffsetPx +
-                    ((clip.startUs - playheadUs).toDouble() / Timecode.US_PER_SECOND * ppsPx).toFloat()
+                val baseStartPx: () -> Float = {
+                    centerOffsetPx +
+                        ((clip.startUs - playheadUs()).toDouble() / Timecode.US_PER_SECOND * ppsPx).toFloat()
+                }
 
                 TimelineClipItem(
                     clip = clip,
@@ -604,7 +611,6 @@ private fun SecondaryTrackLane(
                     trackHeight = SECONDARY_TRACK_HEIGHT,
                     clipWidthDp = clipWidthDp,
                     clipWidthPx = clipWidthPx,
-                    baseStartPx = baseStartPx,
                     playheadUs = playheadUs,
                     ppsPx = ppsPx,
                     visibleRangeUs = visibleRangeUs,
@@ -614,7 +620,7 @@ private fun SecondaryTrackLane(
                     onAction = onAction,
                     modifier = Modifier
                         .zIndex(if (isSelected) 5f else 1f)
-                        .offset { IntOffset(baseStartPx.roundToInt(), 0) },
+                        .offset { IntOffset(baseStartPx().roundToInt(), 0) },
                 )
             }
         }
@@ -628,10 +634,9 @@ private fun TimelineClipItem(
     trackHeight: Dp,
     clipWidthDp: Dp,
     clipWidthPx: Float,
-    baseStartPx: Float,
-    playheadUs: Long,
+    playheadUs: () -> Long,
     ppsPx: Float,
-    visibleRangeUs: LongRange,
+    visibleRangeUs: () -> LongRange,
     isSelected: Boolean,
     snapPointsUs: List<Long>,
     mediaSource: TimelineMediaSource,
@@ -644,14 +649,15 @@ private fun TimelineClipItem(
     val thumbTileWidthPx = with(density) { THUMB_TILE_WIDTH.toPx() }
     val thumbHeightPx = with(density) { trackHeight.roundToPx() }.coerceAtLeast(32)
 
-    // Determine if this clip intersects the visible range at all
+    // Visibility only flips when the clip enters or leaves the window, not on every playhead tick.
     val isVisible by remember(clip.startUs, clip.endUs, visibleRangeUs) {
         derivedStateOf {
-            clip.endUs >= visibleRangeUs.first && clip.startUs <= visibleRangeUs.last
+            val range = visibleRangeUs()
+            clip.endUs >= range.first && clip.startUs <= range.last
         }
     }
 
-    // Derived visible thumbnail tile range so only visible tiles inside the viewport are requested
+    // Visible thumbnail tiles; recomposition happens only when the tile range actually changes.
     val visibleTileIndices by remember(
         clip.startUs,
         clip.durationUs,
@@ -661,9 +667,10 @@ private fun TimelineClipItem(
         ppsPx,
     ) {
         derivedStateOf {
+            val range = visibleRangeUs()
             val totalTiles = max(1, ceil(clipWidthPx / thumbTileWidthPx).toInt())
-            val visStartOffsetUs = (visibleRangeUs.first - clip.startUs).coerceAtLeast(0L)
-            val visEndOffsetUs = (visibleRangeUs.last - clip.startUs).coerceAtMost(clip.durationUs)
+            val visStartOffsetUs = (range.first - clip.startUs).coerceAtLeast(0L)
+            val visEndOffsetUs = (range.last - clip.startUs).coerceAtMost(clip.durationUs)
             if (visEndOffsetUs < visStartOffsetUs) {
                 IntRange.EMPTY
             } else {
@@ -691,6 +698,9 @@ private fun TimelineClipItem(
 
     Box(
         modifier = modifier
+            // Long clips are wider than the viewport: let them overflow to the right instead of
+            // being clamped (and re-centered) by the parent's constraints.
+            .wrapContentWidth(align = Alignment.Start, unbounded = true)
             .width(clipWidthDp)
             .height(trackHeight)
             .clip(clipShape)
@@ -824,6 +834,7 @@ private fun TimelineClipItem(
                 isStart = true,
                 clip = clip,
                 ppsPx = ppsPx,
+                playheadUs = playheadUs,
                 snapPointsUs = snapPointsUs,
                 onAction = onAction,
                 modifier = Modifier
@@ -835,6 +846,7 @@ private fun TimelineClipItem(
                 isStart = false,
                 clip = clip,
                 ppsPx = ppsPx,
+                playheadUs = playheadUs,
                 snapPointsUs = snapPointsUs,
                 onAction = onAction,
                 modifier = Modifier
@@ -851,6 +863,7 @@ private fun TrimHandle(
     isStart: Boolean,
     clip: Clip,
     ppsPx: Float,
+    playheadUs: () -> Long,
     snapPointsUs: List<Long>,
     onAction: (EditorAction) -> Unit,
     modifier: Modifier = Modifier,
@@ -865,6 +878,7 @@ private fun TrimHandle(
     val currentClip by rememberUpdatedState(clip)
     val currentPpsPx by rememberUpdatedState(ppsPx)
     val currentSnapPoints by rememberUpdatedState(snapPointsUs)
+    val currentPlayheadUs by rememberUpdatedState(playheadUs)
     val currentSnapThresholdUs by rememberUpdatedState(snapThresholdUs)
     val currentOnAction by rememberUpdatedState(onAction)
 
@@ -946,7 +960,7 @@ private fun TrimHandle(
 
                         // Check proximity to other clip boundaries or the playhead for haptic snap
                         val selfBoundary = if (isStart) currentClip.startUs else currentClip.endUs
-                        val nearestSnap = currentSnapPoints
+                        val nearestSnap = (currentSnapPoints.asSequence() + currentPlayheadUs())
                             .filter { it != selfBoundary }
                             .minByOrNull { abs(it - rawCandidateUs) }
 

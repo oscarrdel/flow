@@ -1,14 +1,21 @@
 package com.rainyworks.flow.feature.editor.ui
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -30,6 +37,8 @@ import androidx.compose.material.icons.rounded.BookmarkAdd
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.FullscreenExit
+import androidx.compose.material.icons.rounded.GridOff
+import androidx.compose.material.icons.rounded.GridOn
 import androidx.compose.material.icons.rounded.IosShare
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -42,16 +51,25 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Canvas as ComposeCanvas
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -78,8 +96,11 @@ import com.rainyworks.flow.feature.editor.EditorAction
 import com.rainyworks.flow.feature.editor.EditorSheet
 import com.rainyworks.flow.feature.editor.EditorUiState
 import com.rainyworks.flow.feature.editor.TimelineMediaSource
+import kotlinx.coroutines.delay
 import kotlin.math.abs
 import kotlin.math.sin
+
+private const val FULLSCREEN_CONTROLS_TIMEOUT_MS = 3_000L
 
 /**
  * Stateless root UI for the video editor screen.
@@ -99,33 +120,108 @@ fun EditorContent(
     val aspectRatio = state.project?.canvas?.aspectRatio ?: AspectRatio.R9_16
     val canvasBackground = state.project?.canvas?.background ?: CanvasBackground.Solid(0xFF000000)
     val totalDurationUs = state.project?.durationUs ?: 0L
+    val loading = state.loading && state.project == null
+
+    // Stable callbacks so children that only depend on them skip recomposition on playhead ticks.
+    val latestOnAction by rememberUpdatedState(onAction)
+    val dispatch: (EditorAction) -> Unit = remember { { action -> latestOnAction(action) } }
+    val playheadState = rememberUpdatedState(state.playheadUs)
+    val playheadProvider: () -> Long = remember { { playheadState.value } }
+
+    val isVerticalCanvas = aspectRatio.value < 1f
+    var showSafeZones by rememberSaveable { mutableStateOf(false) }
+
+    val selection = remember(state.project, state.selectedClipId) {
+        state.selectedClipId?.let { id -> state.project?.findClip(id) }
+    }
+    val selectedClip = selection?.second
+    val editableClip = selection
+        ?.takeIf { (track, clip) -> isVisualClip(track, clip) && clip.contains(state.playheadUs) }
+        ?.second
+
+    BackHandler(enabled = state.fullscreenPreview) { dispatch(EditorAction.ToggleFullscreen) }
 
     if (state.fullscreenPreview) {
-        Column(
-            modifier = modifier
-                .fillMaxSize()
-                .background(FlowColors.Black),
-        ) {
-            EditorPreviewArea(
-                aspectRatio = aspectRatio,
-                background = canvasBackground,
-                loading = state.loading && state.project == null,
-                onDoubleTap = { onAction(EditorAction.TogglePlay) },
-                preview = preview,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
+        FullscreenPreview(
+            aspectRatio = aspectRatio,
+            background = canvasBackground,
+            loading = loading,
+            playheadUs = state.playheadUs,
+            durationUs = totalDurationUs,
+            fps = state.fps,
+            isPlaying = state.isPlaying,
+            onAction = dispatch,
+            preview = preview,
+            modifier = modifier,
+        )
+        return
+    }
+
+    val previewPane: @Composable (Modifier) -> Unit = { paneModifier ->
+        EditorPreviewArea(
+            aspectRatio = aspectRatio,
+            background = canvasBackground,
+            loading = loading,
+            onDoubleTap = { dispatch(EditorAction.TogglePlay) },
+            preview = preview,
+            modifier = paneModifier,
+            overlay = {
+                CanvasInteractionLayer(
+                    clip = editableClip,
+                    showSafeZones = showSafeZones && isVerticalCanvas,
+                    onAction = dispatch,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            },
+        )
+    }
+
+    val playbackBar: @Composable () -> Unit = {
+        EditorPlaybackBar(
+            playheadUs = state.playheadUs,
+            durationUs = totalDurationUs,
+            fps = state.fps,
+            isPlaying = state.isPlaying,
+            safeZonesVisible = showSafeZones,
+            onToggleSafeZones = if (isVerticalCanvas) {
+                { showSafeZones = !showSafeZones }
+            } else {
+                null
+            },
+            onAction = dispatch,
+        )
+    }
+
+    val controls: @Composable ColumnScope.() -> Unit = {
+        EditorTimeline(
+            project = state.project,
+            playheadUs = playheadProvider,
+            selectedClipId = state.selectedClipId,
+            pixelsPerSecond = state.pixelsPerSecond,
+            onAction = dispatch,
+            mediaSource = mediaSource,
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+        )
+
+        HorizontalDivider(color = FlowColors.Steel, thickness = 1.dp)
+
+        val activeSheet = state.activeSheet
+        if (activeSheet != null) {
+            EditorActiveSheet(
+                sheet = activeSheet,
+                state = state,
+                mediaSource = mediaSource,
+                onAction = dispatch,
             )
-            EditorPlaybackBar(
-                playheadUs = state.playheadUs,
-                durationUs = totalDurationUs,
-                fps = state.fps,
-                isPlaying = state.isPlaying,
-                isFullscreen = true,
-                onAction = onAction,
+        } else {
+            EditorBottomToolbar(
+                selectedClipId = state.selectedClipId,
+                selectedClipKind = selectedClip?.kind,
+                onAction = dispatch,
             )
         }
-        return
     }
 
     BoxWithConstraints(
@@ -140,7 +236,7 @@ fun EditorContent(
                 aspectRatio = aspectRatio,
                 canUndo = state.canUndo,
                 canRedo = state.canRedo,
-                onAction = onAction,
+                onAction = dispatch,
             )
 
             HorizontalDivider(color = FlowColors.Steel, thickness = 1.dp)
@@ -158,24 +254,12 @@ fun EditorContent(
                             .fillMaxHeight()
                             .background(FlowColors.Black),
                     ) {
-                        EditorPreviewArea(
-                            aspectRatio = aspectRatio,
-                            background = canvasBackground,
-                            loading = state.loading && state.project == null,
-                            onDoubleTap = { onAction(EditorAction.TogglePlay) },
-                            preview = preview,
-                            modifier = Modifier
+                        previewPane(
+                            Modifier
                                 .fillMaxWidth()
                                 .weight(1f),
                         )
-                        EditorPlaybackBar(
-                            playheadUs = state.playheadUs,
-                            durationUs = totalDurationUs,
-                            fps = state.fps,
-                            isPlaying = state.isPlaying,
-                            isFullscreen = false,
-                            onAction = onAction,
-                        )
+                        playbackBar()
                     }
 
                     VerticalDivider(color = FlowColors.Steel, thickness = 1.dp)
@@ -186,57 +270,18 @@ fun EditorContent(
                             .weight(0.56f)
                             .fillMaxHeight(),
                     ) {
-                        EditorTimeline(
-                            project = state.project,
-                            playheadUs = state.playheadUs,
-                            isPlaying = state.isPlaying,
-                            selectedClipId = state.selectedClipId,
-                            pixelsPerSecond = state.pixelsPerSecond,
-                            onAction = onAction,
-                            mediaSource = mediaSource,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .weight(1f),
-                        )
-
-                        HorizontalDivider(color = FlowColors.Steel, thickness = 1.dp)
-
-                        val activeSheet = state.activeSheet
-                        if (activeSheet != null) {
-                            EditorActiveSheet(
-                                sheet = activeSheet,
-                                state = state,
-                                onAction = onAction,
-                            )
-                        } else {
-                            EditorBottomToolbar(
-                                selectedClipId = state.selectedClipId,
-                                onAction = onAction,
-                            )
-                        }
+                        controls()
                     }
                 }
             } else {
                 // Portrait layout: upper preview area + playback bar, lower timeline + toolbar/sheet
-                EditorPreviewArea(
-                    aspectRatio = aspectRatio,
-                    background = canvasBackground,
-                    loading = state.loading && state.project == null,
-                    onDoubleTap = { onAction(EditorAction.TogglePlay) },
-                    preview = preview,
-                    modifier = Modifier
+                previewPane(
+                    Modifier
                         .fillMaxWidth()
                         .weight(0.45f),
                 )
 
-                EditorPlaybackBar(
-                    playheadUs = state.playheadUs,
-                    durationUs = totalDurationUs,
-                    fps = state.fps,
-                    isPlaying = state.isPlaying,
-                    isFullscreen = false,
-                    onAction = onAction,
-                )
+                playbackBar()
 
                 HorizontalDivider(color = FlowColors.Steel, thickness = 1.dp)
 
@@ -245,39 +290,18 @@ fun EditorContent(
                         .fillMaxWidth()
                         .weight(0.55f),
                 ) {
-                    EditorTimeline(
-                        project = state.project,
-                        playheadUs = state.playheadUs,
-                        isPlaying = state.isPlaying,
-                        selectedClipId = state.selectedClipId,
-                        pixelsPerSecond = state.pixelsPerSecond,
-                        onAction = onAction,
-                        mediaSource = mediaSource,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                    )
-
-                    HorizontalDivider(color = FlowColors.Steel, thickness = 1.dp)
-
-                    val activeSheet = state.activeSheet
-                    if (activeSheet != null) {
-                        EditorActiveSheet(
-                            sheet = activeSheet,
-                            state = state,
-                            onAction = onAction,
-                        )
-                    } else {
-                        EditorBottomToolbar(
-                            selectedClipId = state.selectedClipId,
-                            onAction = onAction,
-                        )
-                    }
+                    controls()
                 }
             }
         }
     }
 }
+
+/** True for clips that render pixels on the canvas and can therefore be transformed. */
+private fun isVisualClip(track: Track, clip: Clip): Boolean =
+    track.kind != TrackKind.AUDIO &&
+        clip.kind != ClipKind.AUDIO &&
+        clip.media?.type != MediaType.AUDIO
 
 @Composable
 private fun EditorTopBar(
@@ -379,6 +403,10 @@ private fun EditorTopBar(
     }
 }
 
+/**
+ * Letterboxed preview canvas. [overlay] is laid out over exactly the same rectangle as the
+ * rendered canvas, so its coordinates map one to one to canvas coordinates.
+ */
 @Composable
 private fun EditorPreviewArea(
     aspectRatio: AspectRatio,
@@ -387,6 +415,7 @@ private fun EditorPreviewArea(
     onDoubleTap: () -> Unit,
     preview: @Composable (Modifier) -> Unit,
     modifier: Modifier = Modifier,
+    overlay: (@Composable () -> Unit)? = null,
 ) {
     val spacing = FlowTheme.spacing
     val targetRatio = aspectRatio.value.coerceAtLeast(0.1f)
@@ -394,6 +423,7 @@ private fun EditorPreviewArea(
     BoxWithConstraints(
         modifier = modifier
             .background(FlowColors.Black)
+            .clipToBounds()
             .pointerInput(Unit) {
                 detectTapGestures(onDoubleTap = { onDoubleTap() })
             }
@@ -404,25 +434,32 @@ private fun EditorPreviewArea(
         val matchHeightFirst = availableRatio > targetRatio
 
         Box(
-            modifier = Modifier
-                .aspectRatio(
-                    ratio = targetRatio,
-                    matchHeightConstraintsFirst = matchHeightFirst,
-                )
-                .clip(RoundedCornerShape(4.dp))
-                .canvasBackgroundModifier(background)
-                .border(1.dp, FlowColors.Steel.copy(alpha = 0.7f), RoundedCornerShape(4.dp)),
+            modifier = Modifier.aspectRatio(
+                ratio = targetRatio,
+                matchHeightConstraintsFirst = matchHeightFirst,
+            ),
             contentAlignment = Alignment.Center,
         ) {
-            preview(Modifier.fillMaxSize())
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(4.dp))
+                    .canvasBackgroundModifier(background)
+                    .border(1.dp, FlowColors.Steel.copy(alpha = 0.7f), RoundedCornerShape(4.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                preview(Modifier.fillMaxSize())
 
-            if (loading) {
-                CircularProgressIndicator(
-                    color = FlowColors.Accent,
-                    strokeWidth = 2.5.dp,
-                    modifier = Modifier.size(32.dp),
-                )
+                if (loading) {
+                    CircularProgressIndicator(
+                        color = FlowColors.Accent,
+                        strokeWidth = 2.5.dp,
+                        modifier = Modifier.size(32.dp),
+                    )
+                }
             }
+
+            overlay?.invoke()
         }
     }
 }
@@ -444,18 +481,12 @@ private fun EditorPlaybackBar(
     durationUs: Long,
     fps: Int,
     isPlaying: Boolean,
-    isFullscreen: Boolean,
+    safeZonesVisible: Boolean,
+    onToggleSafeZones: (() -> Unit)?,
     onAction: (EditorAction) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val spacing = FlowTheme.spacing
-    val safeFps = fps.coerceAtLeast(1)
-    val currentFormatted = remember(playheadUs, safeFps) {
-        Timecode.format(playheadUs, safeFps)
-    }
-    val totalFormatted = remember(durationUs, safeFps) {
-        Timecode.format(durationUs, safeFps)
-    }
 
     Box(
         modifier = modifier
@@ -464,40 +495,40 @@ private fun EditorPlaybackBar(
             .background(FlowColors.Graphite)
             .padding(horizontal = spacing.md),
     ) {
-        Text(
-            text = buildAnnotatedString {
-                withStyle(SpanStyle(color = FlowColors.TextPrimary)) {
-                    append(currentFormatted)
-                }
-                withStyle(SpanStyle(color = FlowColors.TextSecondary)) {
-                    append(" / ")
-                    append(totalFormatted)
-                }
-            },
-            style = TimecodeStyle,
+        PlaybackTimecode(
+            playheadUs = playheadUs,
+            durationUs = durationUs,
+            fps = fps,
             modifier = Modifier.align(Alignment.CenterStart),
         )
 
-        IconButton(
+        PlayPauseButton(
+            isPlaying = isPlaying,
             onClick = { onAction(EditorAction.TogglePlay) },
-            modifier = Modifier
-                .align(Alignment.Center)
-                .size(36.dp)
-                .clip(CircleShape)
-                .background(FlowColors.Slate),
-        ) {
-            Icon(
-                imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                contentDescription = if (isPlaying) "Pausar" else "Reproducir",
-                tint = FlowColors.TextPrimary,
-                modifier = Modifier.size(22.dp),
-            )
-        }
+            modifier = Modifier.align(Alignment.Center),
+        )
 
         Row(
             modifier = Modifier.align(Alignment.CenterEnd),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            if (onToggleSafeZones != null) {
+                IconButton(
+                    onClick = onToggleSafeZones,
+                    modifier = Modifier.size(34.dp),
+                ) {
+                    Icon(
+                        imageVector = if (safeZonesVisible) Icons.Rounded.GridOn else Icons.Rounded.GridOff,
+                        contentDescription = if (safeZonesVisible) {
+                            "Ocultar zonas seguras"
+                        } else {
+                            "Mostrar zonas seguras"
+                        },
+                        tint = if (safeZonesVisible) FlowColors.Accent else FlowColors.TextSecondary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
             IconButton(
                 onClick = { onAction(EditorAction.AddMarker) },
                 modifier = Modifier.size(34.dp),
@@ -514,18 +545,163 @@ private fun EditorPlaybackBar(
                 modifier = Modifier.size(34.dp),
             ) {
                 Icon(
-                    imageVector = if (isFullscreen) {
-                        Icons.Rounded.FullscreenExit
-                    } else {
-                        Icons.Rounded.Fullscreen
-                    },
-                    contentDescription = if (isFullscreen) {
-                        "Salir de pantalla completa"
-                    } else {
-                        "Pantalla completa"
-                    },
+                    imageVector = Icons.Rounded.Fullscreen,
+                    contentDescription = "Pantalla completa",
                     tint = FlowColors.TextSecondary,
                     modifier = Modifier.size(20.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlaybackTimecode(
+    playheadUs: Long,
+    durationUs: Long,
+    fps: Int,
+    modifier: Modifier = Modifier,
+) {
+    val safeFps = fps.coerceAtLeast(1)
+    val currentFormatted = remember(playheadUs, safeFps) { Timecode.format(playheadUs, safeFps) }
+    val totalFormatted = remember(durationUs, safeFps) { Timecode.format(durationUs, safeFps) }
+
+    Text(
+        text = buildAnnotatedString {
+            withStyle(SpanStyle(color = FlowColors.TextPrimary)) {
+                append(currentFormatted)
+            }
+            withStyle(SpanStyle(color = FlowColors.TextSecondary)) {
+                append(" / ")
+                append(totalFormatted)
+            }
+        },
+        style = TimecodeStyle,
+        modifier = modifier,
+    )
+}
+
+@Composable
+private fun PlayPauseButton(
+    isPlaying: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    IconButton(
+        onClick = onClick,
+        modifier = modifier
+            .size(36.dp)
+            .clip(CircleShape)
+            .background(FlowColors.Slate),
+    ) {
+        Icon(
+            imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+            contentDescription = if (isPlaying) "Pausar" else "Reproducir",
+            tint = FlowColors.TextPrimary,
+            modifier = Modifier.size(22.dp),
+        )
+    }
+}
+
+/**
+ * Preview filling the whole screen. Overlaid controls fade out after a few seconds without
+ * touches and come back on the next touch; double tap keeps toggling playback.
+ */
+@Composable
+private fun FullscreenPreview(
+    aspectRatio: AspectRatio,
+    background: CanvasBackground,
+    loading: Boolean,
+    playheadUs: Long,
+    durationUs: Long,
+    fps: Int,
+    isPlaying: Boolean,
+    onAction: (EditorAction) -> Unit,
+    preview: @Composable (Modifier) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val spacing = FlowTheme.spacing
+    var controlsVisible by remember { mutableStateOf(true) }
+    var interactionCount by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(interactionCount) {
+        controlsVisible = true
+        delay(FULLSCREEN_CONTROLS_TIMEOUT_MS)
+        controlsVisible = false
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(FlowColors.Black)
+            .pointerInput(Unit) {
+                // Observe every touch without consuming it, so children keep working.
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                    interactionCount++
+                }
+            },
+    ) {
+        EditorPreviewArea(
+            aspectRatio = aspectRatio,
+            background = background,
+            loading = loading,
+            onDoubleTap = { onAction(EditorAction.TogglePlay) },
+            preview = preview,
+            modifier = Modifier.fillMaxSize(),
+        )
+
+        AnimatedVisibility(
+            visible = controlsVisible,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(spacing.sm),
+        ) {
+            IconButton(
+                onClick = { onAction(EditorAction.ToggleFullscreen) },
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(FlowColors.Scrim),
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.FullscreenExit,
+                    contentDescription = "Salir de pantalla completa",
+                    tint = FlowColors.TextPrimary,
+                )
+            }
+        }
+
+        AnimatedVisibility(
+            visible = controlsVisible,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth(),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(Color.Transparent, FlowColors.Scrim),
+                        ),
+                    )
+                    .padding(horizontal = spacing.lg, vertical = spacing.md),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(spacing.md),
+            ) {
+                PlayPauseButton(
+                    isPlaying = isPlaying,
+                    onClick = { onAction(EditorAction.TogglePlay) },
+                )
+                PlaybackTimecode(
+                    playheadUs = playheadUs,
+                    durationUs = durationUs,
+                    fps = fps,
                 )
             }
         }

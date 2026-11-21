@@ -25,6 +25,8 @@ import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.Opacity
+import androidx.compose.material.icons.rounded.OpenWith
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.SwapHoriz
@@ -32,6 +34,7 @@ import androidx.compose.material.icons.rounded.Title
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -39,21 +42,25 @@ import androidx.compose.ui.unit.dp
 import com.rainyworks.flow.core.designsystem.components.FlowToolButton
 import com.rainyworks.flow.core.designsystem.theme.FlowColors
 import com.rainyworks.flow.core.designsystem.theme.FlowTheme
+import com.rainyworks.flow.core.model.ClipKind
 import com.rainyworks.flow.feature.editor.ClipTool
 import com.rainyworks.flow.feature.editor.EditorAction
 import com.rainyworks.flow.feature.editor.GlobalTool
 
 /**
  * Contextual bottom toolbar switching between [GlobalTool] (no clip selected)
- * and [ClipTool] (a clip is selected, with a back button to deselect).
+ * and [ClipTool] (a clip is selected, with a back button to deselect). Clip tools are
+ * filtered by [selectedClipKind] so only the ones that apply to that media are offered.
  */
 @Composable
 internal fun EditorBottomToolbar(
     selectedClipId: String?,
+    selectedClipKind: ClipKind?,
     onAction: (EditorAction) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val spacing = FlowTheme.spacing
+    val clipTools = remember(selectedClipKind) { clipToolsFor(selectedClipKind) }
 
     Row(
         modifier = modifier
@@ -82,7 +89,7 @@ internal fun EditorBottomToolbar(
                 horizontalArrangement = Arrangement.spacedBy(spacing.xs),
             ) {
                 items(
-                    items = ClipTool.entries,
+                    items = clipTools,
                     key = { it.name },
                 ) { tool ->
                     FlowToolButton(
@@ -136,10 +143,34 @@ private fun GlobalTool.icon(): ImageVector = when (this) {
     GlobalTool.Canvas -> Icons.Rounded.Palette
 }
 
+private val VisualOnlyTools = setOf(
+    ClipTool.Transform,
+    ClipTool.Opacity,
+    ClipTool.Crop,
+    ClipTool.Chroma,
+    ClipTool.Mask,
+    ClipTool.Freeze,
+)
+
+private val TimedOnlyTools = setOf(
+    ClipTool.Speed,
+    ClipTool.Reverse,
+    ClipTool.Freeze,
+    ClipTool.Volume,
+)
+
+private fun clipToolsFor(kind: ClipKind?): List<ClipTool> = when (kind) {
+    ClipKind.AUDIO -> ClipTool.entries.filterNot { it in VisualOnlyTools }
+    ClipKind.IMAGE -> ClipTool.entries.filterNot { it in TimedOnlyTools }
+    else -> ClipTool.entries
+}
+
 private fun ClipTool.spanishLabel(): String = when (this) {
     ClipTool.Split -> "Dividir"
     ClipTool.Speed -> "Velocidad"
     ClipTool.Volume -> "Volumen"
+    ClipTool.Transform -> "Ajustar"
+    ClipTool.Opacity -> "Opacidad"
     ClipTool.Duplicate -> "Duplicar"
     ClipTool.Delete -> "Eliminar"
     ClipTool.Replace -> "Reemplazar"
@@ -155,6 +186,8 @@ private fun ClipTool.icon(): ImageVector = when (this) {
     ClipTool.Split -> Icons.Rounded.ContentCut
     ClipTool.Speed -> Icons.Rounded.Speed
     ClipTool.Volume -> Icons.AutoMirrored.Rounded.VolumeUp
+    ClipTool.Transform -> Icons.Rounded.OpenWith
+    ClipTool.Opacity -> Icons.Rounded.Opacity
     ClipTool.Duplicate -> Icons.Rounded.ContentCopy
     ClipTool.Delete -> Icons.Rounded.DeleteOutline
     ClipTool.Replace -> Icons.Rounded.SwapHoriz
