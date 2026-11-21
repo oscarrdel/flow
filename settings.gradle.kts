@@ -24,3 +24,10 @@ dependencyResolutionManagement {
 
 rootProject.name = "Flow"
 include(":app")
+include(":core:model")
+include(":core:designsystem")
+include(":core:data")
+include(":core:engine")
+include(":feature:home")
+include(":feature:editor")
+include(":feature:export")
