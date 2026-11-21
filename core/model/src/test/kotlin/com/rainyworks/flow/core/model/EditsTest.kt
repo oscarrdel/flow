@@ -1,5 +1,8 @@
 ﻿package com.rainyworks.flow.core.model
 
+import kotlin.math.abs
+import kotlin.math.ln
+import kotlin.math.roundToLong
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
@@ -109,6 +112,138 @@ class EditsTest {
         assertEquals(project, Edits.split(project, clip.id, atUs = minimum - 1))
         assertEquals(project, Edits.split(project, clip.id, atUs = minimum + 1))
         assertEquals(listOf(minimum, minimum), Edits.split(project, clip.id, atUs = minimum).mainTrack.clips.map { it.durationUs })
+    }
+
+    @Test
+    fun splitSlicesTheCurveInSourceOrderAndKeepsPiecesContiguousInBothDirections() {
+        val curve = increasingCurve().copy(presetId = "original")
+        for (reversed in listOf(false, true)) {
+            val clip = testVideo("clip", trimInUs = 500_000L, trimOutUs = 1_500_000L)
+                .copy(speedCurve = curve, reversed = reversed)
+            val project = if (reversed) testProject(testLayer("overlay", clip)) else {
+                val next = testVideo("next", startUs = clip.endUs)
+                testProject(main = Track.main().copy(clips = listOf(clip, next)))
+            }
+            val track = requireNotNull(project.findClip(clip.id)).first
+            val elapsed = (1_000_000L * if (reversed) ln(2.0 / 1.5) else ln(1.5)).roundToLong()
+            val cut = clip.startUs + elapsed
+            assertEquals(1_000_000L, clip.sourceTimeAt(cut))
+
+            val result = Edits.split(project, clip.id, cut)
+            val (first, second) = requireNotNull(result.track(track.id)).clips
+            val (lower, upper) = if (reversed) second to first else first to second
+
+            assertEquals(clip.id, first.id)
+            assertNotEquals(clip.id, second.id)
+            assertEquals(clip.trimInUs, lower.trimInUs)
+            assertEquals(1_000_000L, lower.trimOutUs)
+            assertEquals(1_000_000L, upper.trimInUs)
+            assertEquals(clip.trimOutUs, upper.trimOutUs)
+            assertEquals(SpeedCurve(listOf(SpeedPoint(0f, 1f), SpeedPoint(1f, 1.5f))), lower.speedCurve)
+            assertEquals(SpeedCurve(listOf(SpeedPoint(0f, 1.5f), SpeedPoint(1f, 2f))), upper.speedCurve)
+            assertEquals(first.endUs, second.startUs)
+            assertEquals(cut, second.startUs)
+            assertTimeNear(clip.endUs, second.endUs)
+            assertEquals(clip.sourceTimeAt(cut), first.sourceTimeAt(first.endUs))
+            assertEquals(clip.sourceTimeAt(cut), second.sourceTimeAt(second.startUs))
+            if (!reversed) assertEquals(second.endUs, result.mainTrack.clips.last().startUs)
+        }
+    }
+
+    @Test
+    fun curvedSplitCanAdjustByOneSourceMicrosecondToFitAnAdjacentClip() {
+        val clip = testVideo("clip").copy(speedCurve = increasingCurve())
+        val next = testVideo("next", startUs = clip.endUs)
+        val track = testLayer("overlay", clip, next)
+        val cut = 100_005L
+
+        val result = Edits.split(testProject(track), clip.id, cut)
+        val (first, second, neighbor) = requireNotNull(result.track(track.id)).clips
+
+        assertTimeNear(clip.sourceTimeAt(cut), first.trimOutUs)
+        assertTimeNear(cut, second.startUs)
+        assertEquals(first.trimOutUs, second.trimInUs)
+        assertEquals(first.endUs, second.startUs)
+        assertEquals(clip.endUs, second.endUs)
+        assertEquals(next, neighbor)
+    }
+
+    @Test
+    fun trimsWithACurveKeepTheOppositeEdgeAndSliceTheRetainedSource() {
+        for (reversed in listOf(false, true)) {
+            val clip = testVideo("clip", startUs = 1_000_000L, trimInUs = 500_000L, trimOutUs = 1_500_000L)
+                .copy(speedCurve = increasingCurve(), reversed = reversed)
+            val project = testProject(testLayer("overlay", clip))
+            val cut = clip.startUs + (1_000_000L * if (reversed) ln(2.0 / 1.5) else ln(1.5)).roundToLong()
+            val startTrim = requireNotNull(Edits.trimStart(project, clip.id, cut).findClip(clip.id)).second
+            val endTrim = requireNotNull(Edits.trimEnd(project, clip.id, cut).findClip(clip.id)).second
+            val (lower, upper) = if (reversed) startTrim to endTrim else endTrim to startTrim
+
+            assertEquals(clip.trimInUs, lower.trimInUs)
+            assertEquals(1_000_000L, lower.trimOutUs)
+            assertEquals(1_000_000L, upper.trimInUs)
+            assertEquals(clip.trimOutUs, upper.trimOutUs)
+            assertEquals(listOf(SpeedPoint(0f, 1f), SpeedPoint(1f, 1.5f)), lower.speedCurve?.points)
+            assertEquals(listOf(SpeedPoint(0f, 1.5f), SpeedPoint(1f, 2f)), upper.speedCurve?.points)
+            assertEquals(clip.endUs, startTrim.endUs)
+            assertEquals(clip.startUs, endTrim.startUs)
+            assertTimeNear(cut, startTrim.startUs)
+            assertTimeNear(cut, endTrim.endUs)
+        }
+    }
+
+    @Test
+    fun extendingACurvedClipUsesEndpointSpeedsAndClampsToSourceMedia() {
+        for (reversed in listOf(false, true)) {
+            val clip = testVideo("clip", startUs = 1_000_000L, trimInUs = 500_000L, trimOutUs = 1_500_000L)
+                .copy(speedCurve = increasingCurve(), reversed = reversed)
+            val project = testProject(testLayer("overlay", clip))
+
+            val startTrim = requireNotNull(Edits.trimStart(project, clip.id, 0L).findClip(clip.id)).second
+            val endTrim = requireNotNull(Edits.trimEnd(project, clip.id, 4_000_000L).findClip(clip.id)).second
+            val (lower, upper) = if (reversed) endTrim to startTrim else startTrim to endTrim
+
+            assertEquals(0L, lower.trimInUs)
+            assertEquals(clip.trimOutUs, lower.trimOutUs)
+            assertEquals(clip.trimInUs, upper.trimInUs)
+            assertEquals(3_000_000L, upper.trimOutUs)
+            assertTimeNear(clip.durationUs + 500_000L, lower.durationUs)
+            assertTimeNear(clip.durationUs + 750_000L, upper.durationUs)
+            assertEquals(clip.endUs, startTrim.endUs)
+        }
+    }
+
+    @Test
+    fun unboundedClipCanExtendItsCurveBeforeSourceZero() {
+        val clip = testImage().copy(speedCurve = increasingCurve())
+        val project = testProject(testLayer("overlay", clip))
+
+        val result = requireNotNull(Edits.trimStart(project, clip.id, 0L).findClip(clip.id)).second
+
+        assertEquals(0L, result.trimInUs)
+        assertEquals(3_000_000L, result.trimOutUs)
+        assertEquals(1f, requireNotNull(result.speedCurve).points.first().speed, 0f)
+        assertTimeNear(0L, result.startUs)
+        assertEquals(clip.endUs, result.endUs)
+    }
+
+    @Test
+    fun trimsWithSlowSpeedRespectMinimumAndAdjacentClipsAfterRounding() {
+        val slow = SpeedCurve(listOf(SpeedPoint(0f, Edits.MIN_SPEED)))
+        val clip = testVideo("clip", startUs = 600_007L, trimInUs = 100_000L, trimOutUs = 200_000L)
+            .copy(speedCurve = slow)
+        val previous = testVideo("previous", trimOutUs = 500_004L)
+        val next = testVideo("next", startUs = clip.endUs + 100_007L)
+        val project = testProject(testLayer("overlay", previous, clip, next))
+
+        val shrunk = requireNotNull(Edits.trimEnd(project, clip.id, clip.startUs).findClip(clip.id)).second
+        val extendedStart = requireNotNull(Edits.trimStart(project, clip.id, 0L).findClip(clip.id)).second
+        val extendedEnd = requireNotNull(Edits.trimEnd(project, clip.id, next.endUs).findClip(clip.id)).second
+
+        assertEquals(33_340L, shrunk.durationUs)
+        assertEquals(clip.endUs, extendedStart.endUs)
+        assertEquals(previous.endUs + 3L, extendedStart.startUs)
+        assertEquals(next.startUs - 7L, extendedEnd.endUs)
     }
 
     @Test
@@ -350,6 +485,38 @@ class EditsTest {
     }
 
     @Test
+    fun setSpeedCurveReflowsMainTrackAndCanBeClearedByEitherSpeedSetter() {
+        val clip = testVideo("clip").copy(speed = 2f)
+        val next = testVideo("next", startUs = clip.endUs)
+        val project = testProject(main = Track.main().copy(clips = listOf(clip, next)))
+        val curve = increasingCurve()
+
+        val ramped = Edits.setSpeedCurve(project, clip.id, curve)
+        val (updated, shifted) = ramped.mainTrack.clips
+        assertEquals(clip.copy(speedCurve = curve), updated)
+        assertEquals(693_147L, shifted.startUs)
+        assertEquals(project, Edits.setSpeedCurve(ramped, clip.id, null))
+
+        val (constant, repositioned) = Edits.setSpeed(ramped, clip.id, 4f).mainTrack.clips
+        assertEquals(clip.copy(speed = 4f), constant)
+        assertEquals(250_000L, repositioned.startUs)
+    }
+
+    @Test
+    fun setSpeedCurveRespectsFreeTrackCollisionsAndLocks() {
+        val clip = testVideo("clip")
+        val next = testVideo("next", startUs = clip.endUs)
+        val overlay = testLayer("overlay", clip, next)
+        val project = testProject(overlay)
+        val locked = testProject(overlay.copy(locked = true))
+        val slow = SpeedCurve(listOf(SpeedPoint(0f, 0.5f)))
+
+        assertEquals(project, Edits.setSpeedCurve(project, clip.id, slow))
+        assertEquals(locked, Edits.setSpeedCurve(locked, clip.id, increasingCurve()))
+        assertEquals(project, Edits.setSpeedCurve(project, "missing", increasingCurve()))
+    }
+
+    @Test
     fun lockedMainTrackRejectsClipChangesAndReordering() {
         val clip = testVideo("clip")
         val next = testVideo("next", startUs = clip.endUs)
@@ -394,6 +561,12 @@ class EditsTest {
 
         assertEquals(lockedSource, Edits.moveToLayer(lockedSource, clip.id, destination.id, 500_000L))
         assertEquals(lockedDestination, Edits.moveToLayer(lockedDestination, clip.id, destination.id, 500_000L))
+    }
+
+    private fun increasingCurve() = SpeedCurve(listOf(SpeedPoint(0f, 1f), SpeedPoint(1f, 2f)))
+
+    private fun assertTimeNear(expected: Long, actual: Long) {
+        assertTrue("expected $expected +/- 1 us, was $actual", abs(expected - actual) <= 1L)
     }
 
     private fun testImage(): Clip = Clip(

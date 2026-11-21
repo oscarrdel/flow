@@ -28,6 +28,24 @@ data class Clip(
     val fadeOutUs: Long = 0L,
     val opacity: Float = 1f,
     val transform: Transform = Transform(),
+    /** Variable speed; when set it replaces [speed] for timing. */
+    val speedCurve: SpeedCurve? = null,
+    /** Keeps the original audio pitch when the speed changes. */
+    val preservePitch: Boolean = true,
+    /** Animated property values keyed by [AnimatedProperty] ids. */
+    val keyframes: Map<String, List<Keyframe>> = emptyMap(),
+    val blendMode: BlendMode = BlendMode.NORMAL,
+    val chromaKey: ChromaKey? = null,
+    val mask: Mask? = null,
+    val color: ColorGrade = ColorGrade(),
+    val effects: List<EffectInstance> = emptyList(),
+    /** Main track only: transition from the previous clip into this one. */
+    val transitionIn: Transition? = null,
+    /** TEXT clips only. */
+    val text: TextContent? = null,
+    val audioEffects: AudioEffects = AudioEffects(),
+    /** Source frame shown for the whole clip (freeze frame), in source time. */
+    val freezeAtUs: Long? = null,
 ) {
     init {
         require(trimOutUs > trimInUs) { "Clip $id has a non-positive source range" }
@@ -35,7 +53,11 @@ data class Clip(
     }
 
     val sourceDurationUs: Long get() = trimOutUs - trimInUs
-    val durationUs: Long get() = (sourceDurationUs / speed.toDouble()).roundToLong().coerceAtLeast(1L)
+    internal val speedRamp by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        speedCurve?.let { SpeedRamp.mapping(sourceDurationUs, it) }
+    }
+    val durationUs: Long
+        get() = speedRamp?.durationUs ?: (sourceDurationUs / speed.toDouble()).roundToLong().coerceAtLeast(1L)
     val endUs: Long get() = startUs + durationUs
 
     /** True when the clip can be extended beyond its current source range indefinitely. */
@@ -45,7 +67,11 @@ data class Clip(
 
     /** Maps a timeline time inside this clip to the corresponding time inside the source. */
     fun sourceTimeAt(timelineUs: Long): Long {
-        val offset = ((timelineUs - startUs).coerceIn(0L, durationUs) * speed.toDouble()).roundToLong()
+        if (timelineUs <= startUs) return if (reversed) trimOutUs else trimInUs
+        val timelineOffset = timelineUs - startUs
+        if (timelineOffset < 0L || timelineOffset >= durationUs) return if (reversed) trimInUs else trimOutUs
+        speedRamp?.let { return trimInUs + it.sourceOffsetAt(timelineOffset, reversed) }
+        val offset = (timelineOffset * speed.toDouble()).roundToLong()
         val sourceUs = if (reversed) trimOutUs - offset else trimInUs + offset
         return sourceUs.coerceIn(trimInUs, trimOutUs)
     }
