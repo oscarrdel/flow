@@ -7,11 +7,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.rainyworks.flow.core.data.ProjectRepository
 import com.rainyworks.flow.core.engine.ExportSettings
-import com.rainyworks.flow.core.engine.ExportState
-import com.rainyworks.flow.core.engine.Exporter
 import com.rainyworks.flow.core.engine.VideoCodec
 import com.rainyworks.flow.core.model.Project
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -55,17 +52,21 @@ data class ExportUiState(
 class ExportViewModel(
     private val projectId: String,
     private val repository: ProjectRepository,
-    private val exporter: Exporter,
+    private val manager: ExportManager,
 ) : ViewModel() {
     private val _state = MutableStateFlow(ExportUiState())
     val state: StateFlow<ExportUiState> = _state.asStateFlow()
-    private var job: Job? = null
 
     init {
         viewModelScope.launch {
             val project = repository.load(projectId)
             _state.update { it.copy(project = project, freeBytes = freeBytes()) }
             recompute()
+        }
+        viewModelScope.launch {
+            manager.job.collect { job ->
+                if (job?.projectId == projectId) _state.update { it.copy(phase = job.phase) }
+            }
         }
     }
 
@@ -77,29 +78,16 @@ class ExportViewModel(
     fun start() {
         val current = _state.value
         val project = current.project ?: return
-        if (job?.isActive == true) return
-        _state.update { it.copy(phase = ExportPhase.Rendering(0f, null)) }
-        job = viewModelScope.launch {
-            exporter.export(project, current.settings(project), project.name).collect { result ->
-                val phase = when (result) {
-                    is ExportState.Running -> ExportPhase.Rendering(result.progress, result.etaMs)
-                    is ExportState.Success -> ExportPhase.Done(result.uri, result.sizeBytes)
-                    is ExportState.Failed -> ExportPhase.Error(result.message)
-                    ExportState.Cancelled -> ExportPhase.Configuring
-                }
-                _state.update { it.copy(phase = phase) }
-            }
-        }
+        manager.start(project, current.settings(project))
     }
 
     /** Stops rendering; the project itself is untouched. */
-    fun cancel() {
-        job?.cancel()
-        job = null
+    fun cancel() = manager.cancel()
+
+    fun backToSettings() {
+        manager.clear(projectId)
         _state.update { it.copy(phase = ExportPhase.Configuring) }
     }
-
-    fun backToSettings() = _state.update { it.copy(phase = ExportPhase.Configuring) }
 
     private fun updateSettings(transform: (ExportUiState) -> ExportUiState) {
         if (_state.value.phase is ExportPhase.Rendering) return
@@ -110,7 +98,7 @@ class ExportViewModel(
     private fun recompute() {
         val state = _state.value
         val project = state.project ?: return
-        _state.update { it.copy(estimatedBytes = exporter.estimateSizeBytes(project, state.settings(project))) }
+        _state.update { it.copy(estimatedBytes = manager.estimateSizeBytes(project, state.settings(project))) }
     }
 
     private fun ExportUiState.settings(project: Project): ExportSettings {
@@ -122,7 +110,4 @@ class ExportViewModel(
         StatFs(Environment.getExternalStorageDirectory().path).availableBytes
     }.getOrDefault(0L)
 
-    override fun onCleared() {
-        job?.cancel()
-    }
 }

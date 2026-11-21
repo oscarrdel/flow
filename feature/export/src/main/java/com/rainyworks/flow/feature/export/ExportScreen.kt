@@ -1,6 +1,10 @@
 package com.rainyworks.flow.feature.export
 
+import android.Manifest
 import android.content.Intent
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -132,8 +136,17 @@ private fun ExportSettingsPanel(state: ExportUiState, viewModel: ExportViewModel
                 Text("No hay espacio suficiente en el dispositivo", color = FlowColors.Error, style = MaterialTheme.typography.bodySmall)
             }
             Spacer(Modifier.height(FlowTheme.spacing.md))
+            val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+                viewModel.start()
+            }
             Button(
-                onClick = viewModel::start,
+                onClick = {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    } else {
+                        viewModel.start()
+                    }
+                },
                 enabled = state.project != null && state.hasEnoughSpace,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -170,7 +183,7 @@ private fun RenderingPanel(phase: ExportPhase.Rendering, onCancel: () -> Unit, m
             phase.etaMs?.let { "Tiempo restante: ${Timecode.formatShort(it * 1_000)}" } ?: "Calculando tiempo restante…",
             color = FlowColors.TextSecondary,
         )
-        Text("Mantén la app abierta hasta que termine", color = FlowColors.TextTertiary, style = MaterialTheme.typography.bodySmall)
+        Text("Puedes salir de la app: la exportación sigue en segundo plano", color = FlowColors.TextTertiary, style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(FlowTheme.spacing.xl))
         OutlinedButton(onClick = onCancel) { Text("Cancelar") }
     }
