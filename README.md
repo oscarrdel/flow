@@ -32,3 +32,16 @@ Requiere Android Studio reciente (AGP 9.5, JDK 17+) y el SDK 37.1.
 ./gradlew assembleDebug
 ./gradlew :core:model:test :core:audio:testDebugUnitTest :core:engine:testDebugUnitTest
 ```
+
+## Licencia
+
+Copyright (C) 2026 Oscar Reyes
+
+Flow es software libre: puedes redistribuirlo y modificarlo bajo los términos de la
+[Licencia Pública General de GNU versión 3](LICENSE) (GPL-3.0-or-later) publicada por la
+Free Software Foundation. Se distribuye con la esperanza de que sea útil, pero **sin
+ninguna garantía**; consulta el archivo `LICENSE` para más detalles.
+
+Las bibliotecas de terceros conservan sus propias licencias. La exportación a MP3 usa
+[LAME](https://lame.sourceforge.io/), distribuido bajo la LGPL como biblioteca
+compartida independiente.
