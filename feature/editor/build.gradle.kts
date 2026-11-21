@@ -37,6 +37,7 @@ dependencies {
     implementation(project(":core:data"))
     implementation(project(":core:engine"))
     implementation(libs.androidx.media3.ui.compose)
+    implementation(libs.androidx.activity.compose)
     implementation(libs.coil.compose)
     implementation(libs.coil.video)
     testImplementation(libs.junit)

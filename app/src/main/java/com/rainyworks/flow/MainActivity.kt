@@ -17,7 +17,7 @@ class MainActivity : ComponentActivity() {
         )
         setContent {
             FlowTheme {
-                FlowNavHost()
+                FlowNavHost((application as FlowApplication).container)
             }
         }
     }

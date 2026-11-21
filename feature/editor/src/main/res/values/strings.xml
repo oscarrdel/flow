@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="editor_untitled_project">Proyecto sin título</string>
+    <string name="editor_nothing_to_export">Agrega un clip antes de exportar</string>
+    <string name="editor_some_media_failed">Algunos archivos no se pudieron importar</string>
+    <string name="editor_cannot_split_here">Mueve el cabezal dentro del clip para dividirlo</string>
+    <string name="editor_coming_soon">Disponible pronto</string>
+</resources>

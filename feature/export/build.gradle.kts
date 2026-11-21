@@ -36,5 +36,6 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(project(":core:data"))
     implementation(project(":core:engine"))
+    implementation(libs.androidx.activity.compose)
     testImplementation(libs.junit)
 }

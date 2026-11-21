@@ -19,6 +19,8 @@ data class EditorUiState(
     val activeSheet: EditorSheet? = null,
     val fullscreenPreview: Boolean = false,
     val fps: Int = 30,
+    /** Short transient message (snackbar). Cleared with [EditorAction.NoticeShown]. */
+    val notice: String? = null,
 ) {
     companion object {
         const val DEFAULT_PIXELS_PER_SECOND = 64f
@@ -66,6 +68,7 @@ sealed interface EditorAction {
 
     data class OpenSheet(val sheet: EditorSheet) : EditorAction
     data object DismissSheet : EditorAction
+    data object NoticeShown : EditorAction
 }
 
 /** Supplies timeline visuals. Implementations cache aggressively; calls may suspend. */

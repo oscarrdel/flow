@@ -1,15 +1,27 @@
 package com.rainyworks.flow
 
+import android.content.Context
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
+import com.rainyworks.flow.core.engine.PreviewController
 import com.rainyworks.flow.feature.editor.EditorScreen
+import com.rainyworks.flow.feature.editor.EditorStrings
+import com.rainyworks.flow.feature.editor.EditorViewModel
 import com.rainyworks.flow.feature.export.ExportScreen
+import com.rainyworks.flow.feature.export.ExportViewModel
 import com.rainyworks.flow.feature.home.HomeScreen
+import com.rainyworks.flow.feature.home.HomeStrings
+import com.rainyworks.flow.feature.home.HomeViewModel
 import kotlinx.serialization.Serializable
-import java.util.UUID
+import com.rainyworks.flow.feature.editor.R as EditorR
+import com.rainyworks.flow.feature.home.R as HomeR
 
 @Serializable
 object HomeRoute
@@ -21,21 +33,65 @@ data class EditorRoute(val projectId: String)
 data class ExportRoute(val projectId: String)
 
 @Composable
-fun FlowNavHost() {
+fun FlowNavHost(container: AppContainer) {
     val navController = rememberNavController()
+    val context = LocalContext.current
     NavHost(navController = navController, startDestination = HomeRoute) {
         composable<HomeRoute> {
-            HomeScreen(onCreateProject = {
-                navController.navigate(EditorRoute(UUID.randomUUID().toString()))
-            })
+            val viewModel: HomeViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer { HomeViewModel(container.projectRepository, homeStrings(context)) }
+                },
+            )
+            HomeScreen(
+                viewModel = viewModel,
+                onOpenProject = { id -> navController.navigate(EditorRoute(id)) { launchSingleTop = true } },
+            )
         }
         composable<EditorRoute> { entry ->
             val route = entry.toRoute<EditorRoute>()
-            EditorScreen(projectId = route.projectId, onClose = { navController.popBackStack() })
+            val viewModel: EditorViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer {
+                        EditorViewModel(
+                            projectId = route.projectId,
+                            repository = container.projectRepository,
+                            preview = PreviewController(container.application),
+                            probe = container.mediaProbe,
+                            thumbnails = container.thumbnails,
+                            strings = editorStrings(context),
+                        )
+                    }
+                },
+            )
+            EditorScreen(
+                viewModel = viewModel,
+                mediaSource = container.timelineMediaSource,
+                onClose = { navController.popBackStack() },
+                onExport = { id -> navController.navigate(ExportRoute(id)) { launchSingleTop = true } },
+            )
         }
         composable<ExportRoute> { entry ->
             val route = entry.toRoute<ExportRoute>()
-            ExportScreen(projectId = route.projectId, onDone = { navController.popBackStack() })
+            val viewModel: ExportViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer { ExportViewModel(route.projectId, container.projectRepository, container.exporter) }
+                },
+            )
+            ExportScreen(viewModel = viewModel, onDone = { navController.popBackStack() })
         }
     }
 }
+
+private fun homeStrings(context: Context) = object : HomeStrings {
+    override fun defaultProjectName(index: Int) = context.getString(HomeR.string.home_default_project_name, index)
+    override val copySuffix = context.getString(HomeR.string.home_copy_suffix)
+}
+
+private fun editorStrings(context: Context) = EditorStrings(
+    untitledProject = context.getString(EditorR.string.editor_untitled_project),
+    nothingToExport = context.getString(EditorR.string.editor_nothing_to_export),
+    someMediaFailed = context.getString(EditorR.string.editor_some_media_failed),
+    cannotSplitHere = context.getString(EditorR.string.editor_cannot_split_here),
+    comingSoon = context.getString(EditorR.string.editor_coming_soon),
+)
