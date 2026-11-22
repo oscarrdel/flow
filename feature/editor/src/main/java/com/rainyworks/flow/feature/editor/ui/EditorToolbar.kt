@@ -24,6 +24,7 @@ import androidx.compose.material.icons.rounded.Contrast
 import androidx.compose.material.icons.rounded.Crop
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.EmojiEmotions
 import androidx.compose.material.icons.rounded.Equalizer
 import androidx.compose.material.icons.rounded.Exposure
 import androidx.compose.material.icons.rounded.GraphicEq
@@ -157,6 +158,7 @@ private fun GlobalTool.spanishLabel(): String = when (this) {
     GlobalTool.Audio -> "Audio"
     GlobalTool.Text -> "Texto"
     GlobalTool.Overlay -> "Superposición"
+    GlobalTool.Stickers -> "Stickers"
     GlobalTool.Effects -> "Efectos"
     GlobalTool.Filters -> "Filtros"
     GlobalTool.Format -> "Formato"
@@ -168,6 +170,7 @@ private fun GlobalTool.icon(): ImageVector = when (this) {
     GlobalTool.Audio -> Icons.Rounded.MusicNote
     GlobalTool.Text -> Icons.Rounded.Title
     GlobalTool.Overlay -> Icons.Rounded.Layers
+    GlobalTool.Stickers -> Icons.Rounded.EmojiEmotions
     GlobalTool.Effects -> Icons.Rounded.AutoAwesome
     GlobalTool.Filters -> Icons.Rounded.AutoFixHigh
     GlobalTool.Format -> Icons.Rounded.AspectRatio

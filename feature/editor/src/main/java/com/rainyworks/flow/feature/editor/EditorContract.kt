@@ -67,11 +67,11 @@ data class BackgroundTask(val label: String, val progress: Float)
 enum class EditorSheet {
     Speed, Volume, AspectRatio, Background, Transform, Crop, Opacity,
     Filters, Adjust, Curves, Hsl, Text, Subtitles,
-    Chroma, Blend, Mask, Keyframes, AudioEffects, Fades, Effects, Transition, InOut,
+    Chroma, Blend, Mask, Keyframes, AudioEffects, Fades, Effects, Transition, InOut, Stickers,
 }
 
 /** Global tools shown in the bottom bar when no clip is selected. */
-enum class GlobalTool { Edit, Audio, Text, Overlay, Effects, Filters, Format, Canvas }
+enum class GlobalTool { Edit, Audio, Text, Overlay, Stickers, Effects, Filters, Format, Canvas }
 
 /** Tools shown in the bottom bar when a clip is selected. */
 enum class ClipTool {
@@ -103,6 +103,8 @@ sealed interface EditorAction {
     data class MoveInMain(val clipId: String, val toIndex: Int) : EditorAction
     data class MoveToLayer(val clipId: String, val trackId: String, val startUs: Long) : EditorAction
     /** Drop of a dragged layer clip: [trackId] is preferred, another track of its kind is used if busy. */
+    /** Adds a shape or emoji sticker as an overlay at the playhead and selects it. */
+    data class AddSticker(val spec: com.rainyworks.flow.core.model.StickerSpec) : EditorAction
     data class PlaceInLayers(val clipId: String, val trackId: String?, val startUs: Long) : EditorAction
 
     data class SetSpeed(val clipId: String, val speed: Float, val final: Boolean) : EditorAction
@@ -166,6 +168,8 @@ sealed interface EditorAction {
     /** Adds an effect to a clip; with clipId = null adds an effect layer at the playhead. */
     data class AddEffect(val clipId: String?, val type: String) : EditorAction
     data class SetEffectParam(val clipId: String, val effectId: String, val key: String, val value: Float, val final: Boolean) : EditorAction
+    /** Adds or removes a keyframe for an effect parameter at the playhead. */
+    data class ToggleEffectKeyframe(val clipId: String, val effectId: String, val key: String) : EditorAction
     data class RemoveEffect(val clipId: String, val effectId: String) : EditorAction
 
     /** Opens the transition panel for the cut before [clipId] (a main-track clip that is not the first). */

@@ -34,6 +34,7 @@ class AppContainer(val application: Application) {
     val waveforms by lazy { WaveformProvider(application) }
     val exporter by lazy { Exporter(application) }
     val reverseProxy by lazy { ReverseProxy(application) }
+    val stickers by lazy { com.rainyworks.flow.core.engine.stickers.StickerRenderer(application) }
     val exportManager by lazy { ExportManager(application, exporter) }
     val timelineMediaSource by lazy { EngineTimelineMediaSource(thumbnails, waveforms) }
 }

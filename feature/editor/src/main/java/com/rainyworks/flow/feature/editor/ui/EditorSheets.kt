@@ -198,6 +198,10 @@ internal fun EditorActiveSheet(
             onAction = onAction,
             modifier = modifier,
         )
+        EditorSheet.Stickers -> StickerSheetPanel(
+            onAction = onAction,
+            modifier = modifier,
+        )
     }
 }
 

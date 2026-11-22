@@ -70,6 +70,8 @@ class EditorViewModel(
     private val reverser: (suspend (MediaRef, (Float) -> Unit) -> MediaRef?)? = null,
     /** Preview resolution (short side in pixels) chosen in settings. */
     private val previewShortSide: Flow<Int>? = null,
+    /** Draws a sticker into an image file; null when stickers are unavailable. */
+    private val stickers: (suspend (com.rainyworks.flow.core.model.StickerSpec) -> MediaRef)? = null,
 ) : ViewModel() {
     private val _state = MutableStateFlow(EditorUiState())
     val state: StateFlow<EditorUiState> = _state.asStateFlow()
@@ -165,6 +167,7 @@ class EditorViewModel(
                 Edits.trimEnd(it, action.clipId, action.newEndUs)
             }
             is EditorAction.MoveInMain -> current?.let { apply(Edits.moveInMain(it, action.clipId, action.toIndex)) }
+            is EditorAction.AddSticker -> addSticker(action.spec)
             is EditorAction.PlaceInLayers -> current?.let {
                 val placed = Edits.placeInLayers(it, action.clipId, action.trackId, action.startUs)
                 if (placed != it) apply(placed)
@@ -306,7 +309,10 @@ class EditorViewModel(
                 }
             }
             is EditorAction.SetEffectParam -> drag("effect-${action.effectId}-${action.key}", action.final) {
-                EffectEdits.setEffectParam(it, action.clipId, action.effectId, action.key, action.value)
+                EffectEdits.setEffectParam(it, action.clipId, action.effectId, action.key, action.value, _state.value.playheadUs)
+            }
+            is EditorAction.ToggleEffectKeyframe -> current?.let {
+                apply(EffectEdits.toggleEffectKeyframe(it, action.clipId, action.effectId, action.key, _state.value.playheadUs))
             }
             is EditorAction.RemoveEffect -> current?.let { apply(EffectEdits.removeEffect(it, action.clipId, action.effectId)) }
             is EditorAction.OpenTransition -> _state.update {
@@ -332,6 +338,27 @@ class EditorViewModel(
             EditorAction.StartVoiceOver -> startVoiceOver()
             EditorAction.StopVoiceOver -> stopVoiceOver(keep = true)
             EditorAction.CancelVoiceOver -> stopVoiceOver(keep = false)
+        }
+    }
+
+    private fun addSticker(spec: com.rainyworks.flow.core.model.StickerSpec) {
+        val render = stickers ?: return
+        viewModelScope.launch {
+            val media = try {
+                render(spec)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                notify(strings.someMediaFailed)
+                return@launch
+            }
+            val project = history?.present ?: return@launch
+            val before = project.tracks.flatMap { it.clips }.map { it.id }.toSet()
+            val added = MediaEdits.addOverlay(project, media, _state.value.playheadUs)
+            apply(added)
+            // Select the new sticker so it can be moved and styled right away.
+            val newId = added.tracks.flatMap { it.clips }.firstOrNull { it.id !in before }?.id
+            if (newId != null) _state.update { it.copy(selectedClipId = newId) }
         }
     }
 
@@ -628,6 +655,7 @@ class EditorViewModel(
         when (tool) {
             GlobalTool.Edit -> pick(PickPurpose.Append)
             GlobalTool.Overlay -> pick(PickPurpose.Overlay)
+            GlobalTool.Stickers -> _state.update { it.copy(selectedClipId = null, activeSheet = EditorSheet.Stickers) }
             GlobalTool.Audio -> _state.update { it.copy(audioPanelOpen = true, activeSheet = null) }
             GlobalTool.Text -> onAction(EditorAction.AddText())
             GlobalTool.Effects -> _state.update { it.copy(selectedClipId = null, activeSheet = EditorSheet.Effects) }
