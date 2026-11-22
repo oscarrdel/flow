@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Android's speech recognizer requires it even when the audio comes from a file. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+</manifest>

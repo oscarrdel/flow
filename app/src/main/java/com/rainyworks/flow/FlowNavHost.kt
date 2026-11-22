@@ -74,6 +74,7 @@ fun FlowNavHost(container: AppContainer) {
                             stickers = { spec -> container.stickers.render(spec) },
                             beats = { media -> container.beats.detect(media) },
                             saveFrame = { project, atUs, name -> container.frames.saveToGallery(project, atUs, name) },
+                            captioner = { clip, progress -> container.captions.captions(clip, onProgress = progress) },
                         )
                     }
                 },

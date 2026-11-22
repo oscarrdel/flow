@@ -23,6 +23,7 @@ import com.rainyworks.flow.core.model.Edits
 import com.rainyworks.flow.core.model.MediaEdits
 import com.rainyworks.flow.core.model.MediaRef
 import com.rainyworks.flow.core.model.MediaType
+import com.rainyworks.flow.core.model.Clip
 import com.rainyworks.flow.core.model.Project
 import com.rainyworks.flow.core.model.Timecode
 import com.rainyworks.flow.core.model.ProjectFactory
@@ -77,6 +78,8 @@ class EditorViewModel(
     private val beats: (suspend (MediaRef) -> LongArray)? = null,
     /** Saves the frame at a time as a gallery photo named after the project; null when unavailable. */
     private val saveFrame: (suspend (Project, Long, String) -> Unit)? = null,
+    /** Turns a clip's speech into subtitle cues on the timeline; null when unavailable. */
+    private val captioner: (suspend (Clip, (Float) -> Unit) -> List<com.rainyworks.flow.core.model.SubtitleCue>)? = null,
 ) : ViewModel() {
     private val _state = MutableStateFlow(EditorUiState())
     val state: StateFlow<EditorUiState> = _state.asStateFlow()
@@ -654,9 +657,64 @@ class EditorViewModel(
         _state.update { it.copy(audioPanelOpen = false, voiceOver = VoiceOverUiState(startUs = it.playheadUs)) }
     }
 
+    /** Clip waiting for the microphone permission to be captioned, if any. */
+    private var pendingCaptionClipId: String? = null
+
     /** Called after the user answers the microphone permission prompt. */
     fun onMicPermissionResult(granted: Boolean) {
-        if (granted) openVoiceOver() else notify(strings.micPermissionDenied)
+        val captionClip = pendingCaptionClipId
+        pendingCaptionClipId = null
+        when {
+            !granted -> notify(strings.micPermissionDenied)
+            captionClip != null -> autoCaptions(captionClip)
+            else -> openVoiceOver()
+        }
+    }
+
+    private fun autoCaptions(clipId: String) {
+        val caption = captioner ?: return
+        val clip = history?.present?.findClip(clipId)?.second
+            ?.takeIf { it.media?.hasAudio == true || it.media?.type == MediaType.AUDIO } ?: return
+        // Android's speech recognizer needs the microphone permission even for files.
+        if (!recorder.hasPermission()) {
+            pendingCaptionClipId = clipId
+            viewModelScope.launch { _events.send(EditorEvent.RequestMicPermission) }
+            return
+        }
+        if (taskJob?.isActive == true) return
+        preview.pause()
+        val token = Any()
+        taskToken = token
+        fun mine() = taskToken === token
+        taskJob = viewModelScope.launch {
+            _state.update { it.copy(task = BackgroundTask(strings.writingCaptions, 0f)) }
+            val cues = try {
+                caption(clip) { p -> if (mine()) _state.update { s -> s.copy(task = s.task?.copy(progress = p.coerceIn(0f, 1f))) } }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: com.rainyworks.flow.core.engine.captions.AutoCaptioner.LanguageDownloadingException) {
+                if (mine()) notify(strings.captionsLanguageDownloading)
+                null
+            } catch (_: com.rainyworks.flow.core.engine.captions.AutoCaptioner.UnavailableException) {
+                if (mine()) notify(strings.captionsUnavailable)
+                null
+            } catch (_: Exception) {
+                if (mine()) notify(strings.captionsFailed)
+                null
+            } finally {
+                if (mine()) _state.update { it.copy(task = null) }
+            }
+            if (!mine()) return@launch
+            taskToken = null
+            cues ?: return@launch
+            if (cues.isEmpty()) {
+                notify(strings.noSpeechFound)
+                return@launch
+            }
+            val project = history?.present ?: return@launch
+            apply(com.rainyworks.flow.core.model.SubtitleEdits.import(project, cues))
+            notify(strings.captionsAdded.format(cues.size))
+        }
     }
 
     private var voiceJob: Job? = null
@@ -768,6 +826,7 @@ class EditorViewModel(
             ClipTool.InOut -> _state.update { it.copy(activeSheet = EditorSheet.InOut) }
             ClipTool.KenBurns -> _state.update { it.copy(activeSheet = EditorSheet.KenBurns) }
             ClipTool.Beats -> detectBeats(clipId)
+            ClipTool.AutoCaptions -> autoCaptions(clipId)
             ClipTool.Reverse -> reverseClip(clipId)
             ClipTool.Duplicate -> apply(Edits.duplicate(project, clipId))
             ClipTool.Delete -> {
@@ -920,4 +979,11 @@ data class EditorStrings(
     val savingFrame: String = "Guardando la foto…",
     val frameSaved: String = "Foto guardada en la galería (Imágenes/Flow)",
     val frameFailed: String = "No se pudo guardar la foto",
+    val writingCaptions: String = "Escribiendo subtítulos…",
+    /** Format string with one %d for the number of subtitles. */
+    val captionsAdded: String = "%d subtítulos agregados; revísalos en Subtítulos",
+    val noSpeechFound: String = "No se encontró voz en este clip",
+    val captionsUnavailable: String = "Este teléfono no puede reconocer voz de archivos. Requiere Android 13 y el reconocimiento de voz de Google con el idioma descargado.",
+    val captionsFailed: String = "No se pudieron generar los subtítulos",
+    val captionsLanguageDownloading: String = "Descargando el idioma para reconocer voz; inténtalo de nuevo en unos minutos",
 )

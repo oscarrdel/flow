@@ -249,16 +249,8 @@ object Edits {
      */
     fun addBeatMarkers(project: Project, clipId: String, sourceBeatsUs: LongArray): Project {
         val (_, clip) = project.findClip(clipId) ?: return project
-        val sourceSpan = clip.trimOutUs - clip.trimInUs
         val timeline = sourceBeatsUs.asSequence()
-            .filter { it in clip.trimInUs..clip.trimOutUs }
-            .map { source ->
-                // Offset into the played source, in playing order.
-                val played = if (clip.reversed) clip.trimOutUs - source else source - clip.trimInUs
-                val offset = clip.speedCurve?.let { SpeedRamp.timelineOffsetAt(played, sourceSpan, it) }
-                    ?: (played / clip.speed.toDouble()).toLong()
-                clip.startUs + offset
-            }
+            .mapNotNull { clip.timelineTimeOfSource(it) }
             .filter { it in clip.startUs until clip.endUs }
             .sorted()
             .toList()

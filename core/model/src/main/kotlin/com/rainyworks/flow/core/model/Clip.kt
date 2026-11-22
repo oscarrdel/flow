@@ -87,6 +87,18 @@ data class Clip(
         return sourceUs.coerceIn(trimInUs, trimOutUs)
     }
 
+    /**
+     * Where a time of the source file plays on the timeline (following trim, speed, speed
+     * ramp and reverse), or null when that part of the source is not in the clip.
+     */
+    fun timelineTimeOfSource(sourceUs: Long): Long? {
+        if (sourceUs !in trimInUs..trimOutUs) return null
+        val played = if (reversed) trimOutUs - sourceUs else sourceUs - trimInUs
+        val offset = speedRamp?.timelineOffsetAt(played)
+            ?: (played / speed.toDouble()).toLong()
+        return (startUs + offset).takeIf { it in startUs..endUs }
+    }
+
     fun contains(timelineUs: Long): Boolean = timelineUs in startUs until endUs
 }
 

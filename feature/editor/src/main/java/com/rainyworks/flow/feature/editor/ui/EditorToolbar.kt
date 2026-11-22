@@ -15,6 +15,7 @@ import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.AcUnit
 import androidx.compose.material.icons.rounded.Animation
 import androidx.compose.material.icons.rounded.ZoomIn
+import androidx.compose.material.icons.rounded.ClosedCaption
 import androidx.compose.material.icons.rounded.AspectRatio
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.AutoFixHigh
@@ -196,6 +197,7 @@ private val VisualOnlyTools = setOf(
 
 private val TimedOnlyTools = setOf(
     ClipTool.Beats,
+    ClipTool.AutoCaptions,
     ClipTool.Speed,
     ClipTool.Reverse,
     ClipTool.Freeze,
@@ -207,6 +209,7 @@ private val TimedOnlyTools = setOf(
 
 private val AudioClipTools = setOf(
     ClipTool.Beats,
+    ClipTool.AutoCaptions,
     ClipTool.AudioEffects,
     ClipTool.Fades,
     ClipTool.Extract,
@@ -303,6 +306,7 @@ private fun ClipTool.spanishLabel(): String = when (this) {
     ClipTool.InOut -> "Entrada/Salida"
     ClipTool.KenBurns -> "Ken Burns"
     ClipTool.Beats -> "Ritmo"
+    ClipTool.AutoCaptions -> "Subtítulos auto"
 }
 
 private fun ClipTool.icon(): ImageVector = when (this) {
@@ -331,4 +335,5 @@ private fun ClipTool.icon(): ImageVector = when (this) {
     ClipTool.InOut -> Icons.Rounded.Animation
     ClipTool.KenBurns -> Icons.Rounded.ZoomIn
     ClipTool.Beats -> Icons.Rounded.GraphicEq
+    ClipTool.AutoCaptions -> Icons.Rounded.ClosedCaption
 }
