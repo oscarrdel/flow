@@ -66,6 +66,10 @@ class EditorViewModel(
     private val recorder: VoiceRecorder,
     private val fonts: FontStore,
     private val contentResolver: ContentResolver,
+    /** Generates a reversed copy of a video; null when reversing is unavailable. */
+    private val reverser: (suspend (MediaRef, (Float) -> Unit) -> MediaRef?)? = null,
+    /** Preview resolution (short side in pixels) chosen in settings. */
+    private val previewShortSide: Flow<Int>? = null,
 ) : ViewModel() {
     private val _state = MutableStateFlow(EditorUiState())
     val state: StateFlow<EditorUiState> = _state.asStateFlow()
@@ -110,6 +114,9 @@ class EditorViewModel(
         viewModelScope.launch {
             val list = fonts.list()
             _state.update { it.copy(customFonts = list) }
+        }
+        previewShortSide?.let { flow ->
+            viewModelScope.launch { flow.collect { preview.setPreviewResolution(it) } }
         }
         viewModelScope.launch {
             preview.isPlaying.collect { playing -> _state.update { it.copy(isPlaying = playing) } }
@@ -212,6 +219,11 @@ class EditorViewModel(
             }
             is EditorAction.RemoveSubtitle -> current?.let { apply(Edits.delete(it, action.clipId)) }
             EditorAction.Back -> back()
+            EditorAction.CancelTask -> {
+                taskJob?.cancel()
+                taskJob = null
+                _state.update { it.copy(task = null) }
+            }
             EditorAction.ImportSrt -> viewModelScope.launch { _events.send(EditorEvent.OpenDocument(DocumentKind.Srt)) }
             EditorAction.ExportSrt -> current?.let { project ->
                 if (SubtitleEdits.cues(project).isEmpty()) {
@@ -301,6 +313,8 @@ class EditorViewModel(
                 apply(EffectEdits.setTransitionEverywhere(it, action.transition))
                 notify(strings.transitionAppliedToAll)
             }
+            is EditorAction.SetEnterAnimation -> current?.let { apply(MediaEdits.setEnterAnimation(it, action.clipId, action.animation)) }
+            is EditorAction.SetExitAnimation -> current?.let { apply(MediaEdits.setExitAnimation(it, action.clipId, action.animation)) }
             is EditorAction.SetAudioPanel -> _state.update { it.copy(audioPanelOpen = action.open, activeSheet = null) }
             EditorAction.AddAudioFile -> {
                 _state.update { it.copy(audioPanelOpen = false) }
@@ -450,6 +464,45 @@ class EditorViewModel(
         }.getOrNull()
     }
 
+    private var taskJob: Job? = null
+
+    private fun reverseClip(clipId: String) {
+        val project = history?.present ?: return
+        val clip = project.findClip(clipId)?.second ?: return
+        val original = clip.originalMedia
+        if (original != null) {
+            apply(MediaEdits.swapReversed(project, clipId, original))
+            notify(strings.reverseRemoved)
+            return
+        }
+        val media = clip.media
+        val reverse = reverser
+        if (clip.kind != ClipKind.VIDEO || media == null || reverse == null) {
+            notify(strings.cannotReverse)
+            return
+        }
+        if (taskJob?.isActive == true) return
+        preview.pause()
+        taskJob = viewModelScope.launch {
+            _state.update { it.copy(task = BackgroundTask(strings.reversing, 0f)) }
+            val result = try {
+                reverse(media) { p -> _state.update { s -> s.copy(task = s.task?.copy(progress = p.coerceIn(0f, 1f))) } }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            } finally {
+                _state.update { it.copy(task = null) }
+            }
+            if (result == null) {
+                notify(strings.reverseFailed)
+            } else {
+                val current = history?.present ?: return@launch
+                if (current.findClip(clipId) != null) apply(MediaEdits.swapReversed(current, clipId, result))
+            }
+        }
+    }
+
     private fun back() {
         val state = _state.value
         when {
@@ -589,6 +642,8 @@ class EditorViewModel(
             ClipTool.Fades -> _state.update { it.copy(activeSheet = EditorSheet.Fades) }
             ClipTool.Extract -> extractAudio()
             ClipTool.Effects -> _state.update { it.copy(activeSheet = EditorSheet.Effects) }
+            ClipTool.InOut -> _state.update { it.copy(activeSheet = EditorSheet.InOut) }
+            ClipTool.Reverse -> reverseClip(clipId)
             ClipTool.Duplicate -> apply(Edits.duplicate(project, clipId))
             ClipTool.Delete -> {
                 apply(Edits.delete(project, clipId))
@@ -707,4 +762,8 @@ data class EditorStrings(
     val subtitlesImported: String,
     val subtitlesExported: String,
     val transitionAppliedToAll: String,
+    val reversing: String,
+    val reverseFailed: String,
+    val reverseRemoved: String,
+    val cannotReverse: String,
 )

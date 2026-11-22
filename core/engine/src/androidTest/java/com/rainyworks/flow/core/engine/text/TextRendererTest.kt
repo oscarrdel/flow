@@ -56,7 +56,8 @@ class TextRendererTest {
         val painted = content.indices.filter { content[it] != 0 }
         assertTrue(painted.size > 80)
         assertTrue(painted.all { it % width in 228..252 && it / width in 108..192 })
-        assertEquals(64, painted.maxOf { Color.alpha(content[it]) })
+        // Keyframes hold the full opacity (0.5), as in the layer compositor; the static value is the fallback.
+        assertEquals(128, painted.maxOf { Color.alpha(content[it]) })
         assertTrue(pixels(draw(clip, 300)).all { it == 0 })
     }
 

@@ -83,6 +83,7 @@ import com.rainyworks.flow.core.designsystem.theme.FlowTheme
 import com.rainyworks.flow.core.designsystem.theme.FlowTypography
 import com.rainyworks.flow.core.designsystem.theme.TimecodeStyle
 import com.rainyworks.flow.core.model.Clip
+import com.rainyworks.flow.core.model.ClipAnimations
 import com.rainyworks.flow.core.model.ClipKind
 import com.rainyworks.flow.core.model.Edits
 import com.rainyworks.flow.core.model.EffectCatalog
@@ -870,6 +871,15 @@ private fun TimelineClipItem(
             )
         }
 
+        // Entrance and exit animation ramps/arrows at the start and end of the clip
+        if (isVisible && (clip.enterAnimation != null || clip.exitAnimation != null)) {
+            ClipInOutRampsOverlay(
+                clip = clip,
+                ppsPx = ppsPx,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+
         // Clip label & status badges
         Row(
             modifier = Modifier
@@ -1241,6 +1251,119 @@ private fun ClipWaveformStrip(
                 end = Offset(size.width, size.height),
                 strokeWidth = rampStrokeWidth,
             )
+        }
+    }
+}
+
+@Composable
+private fun ClipInOutRampsOverlay(
+    clip: Clip,
+    ppsPx: Float,
+    modifier: Modifier = Modifier,
+) {
+    Canvas(modifier = modifier) {
+        if (size.width <= 0f || size.height <= 0f) return@Canvas
+        val maxAnimUs = clip.durationUs / 2L
+        val enterUs = clip.enterAnimation?.let {
+            min(
+                it.durationUs.coerceIn(ClipAnimations.MIN_DURATION_US, ClipAnimations.MAX_DURATION_US),
+                maxAnimUs,
+            )
+        } ?: 0L
+        val exitUs = clip.exitAnimation?.let {
+            min(
+                it.durationUs.coerceIn(ClipAnimations.MIN_DURATION_US, ClipAnimations.MAX_DURATION_US),
+                maxAnimUs,
+            )
+        } ?: 0L
+
+        val enterPx = ((enterUs.toDouble() / Timecode.US_PER_SECOND) * ppsPx)
+            .toFloat()
+            .coerceIn(0f, size.width / 2f)
+        val exitPx = ((exitUs.toDouble() / Timecode.US_PER_SECOND) * ppsPx)
+            .toFloat()
+            .coerceIn(0f, size.width / 2f)
+
+        val fillColor = FlowColors.Accent.copy(alpha = 0.24f)
+        val strokeColor = FlowColors.Accent.copy(alpha = 0.8f)
+        val strokeWidth = 1.5.dp.toPx()
+        val arrowY = (size.height - 6.dp.toPx()).coerceAtLeast(size.height * 0.5f)
+        val arrowHead = 3.5.dp.toPx()
+
+        if (enterPx > 1f) {
+            val enterRamp = Path().apply {
+                moveTo(0f, size.height)
+                lineTo(enterPx, 0f)
+                lineTo(0f, 0f)
+                close()
+            }
+            drawPath(path = enterRamp, color = fillColor)
+            drawLine(
+                color = strokeColor,
+                start = Offset(0f, size.height),
+                end = Offset(enterPx, 0f),
+                strokeWidth = strokeWidth,
+            )
+            if (enterPx >= arrowHead * 2f) {
+                val endX = (enterPx - 2.dp.toPx()).coerceAtLeast(arrowHead)
+                drawLine(
+                    color = strokeColor,
+                    start = Offset(2.dp.toPx(), arrowY),
+                    end = Offset(endX, arrowY),
+                    strokeWidth = strokeWidth,
+                )
+                drawLine(
+                    color = strokeColor,
+                    start = Offset(endX, arrowY),
+                    end = Offset(endX - arrowHead, arrowY - arrowHead),
+                    strokeWidth = strokeWidth,
+                )
+                drawLine(
+                    color = strokeColor,
+                    start = Offset(endX, arrowY),
+                    end = Offset(endX - arrowHead, arrowY + arrowHead),
+                    strokeWidth = strokeWidth,
+                )
+            }
+        }
+
+        if (exitPx > 1f) {
+            val startX = (size.width - exitPx).coerceAtLeast(0f)
+            val exitRamp = Path().apply {
+                moveTo(startX, 0f)
+                lineTo(size.width, 0f)
+                lineTo(size.width, size.height)
+                close()
+            }
+            drawPath(path = exitRamp, color = fillColor)
+            drawLine(
+                color = strokeColor,
+                start = Offset(startX, 0f),
+                end = Offset(size.width, size.height),
+                strokeWidth = strokeWidth,
+            )
+            if (exitPx >= arrowHead * 2f) {
+                val arrowStartX = (startX + 2.dp.toPx()).coerceAtMost(size.width - arrowHead)
+                val arrowEndX = (size.width - 2.dp.toPx()).coerceAtLeast(arrowStartX)
+                drawLine(
+                    color = strokeColor,
+                    start = Offset(arrowStartX, arrowY),
+                    end = Offset(arrowEndX, arrowY),
+                    strokeWidth = strokeWidth,
+                )
+                drawLine(
+                    color = strokeColor,
+                    start = Offset(arrowEndX, arrowY),
+                    end = Offset(arrowEndX - arrowHead, arrowY - arrowHead),
+                    strokeWidth = strokeWidth,
+                )
+                drawLine(
+                    color = strokeColor,
+                    start = Offset(arrowEndX, arrowY),
+                    end = Offset(arrowEndX - arrowHead, arrowY + arrowHead),
+                    strokeWidth = strokeWidth,
+                )
+            }
         }
     }
 }

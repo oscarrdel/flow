@@ -193,6 +193,11 @@ internal fun EditorActiveSheet(
             onAction = onAction,
             modifier = modifier,
         )
+        EditorSheet.InOut -> InOutSheetPanel(
+            state = state,
+            onAction = onAction,
+            modifier = modifier,
+        )
     }
 }
 

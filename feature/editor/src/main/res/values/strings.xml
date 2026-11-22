@@ -23,4 +23,8 @@
     <string name="editor_subtitles_imported">%d subtítulos importados</string>
     <string name="editor_subtitles_exported">Subtítulos exportados</string>
     <string name="editor_transition_applied_to_all">Transición aplicada a todos los cortes</string>
+    <string name="editor_reversing">Preparando el clip en reversa…</string>
+    <string name="editor_reverse_failed">No se pudo invertir el clip</string>
+    <string name="editor_reverse_removed">Reversa quitada</string>
+    <string name="editor_cannot_reverse">Solo los clips de video se pueden poner en reversa</string>
 </resources>

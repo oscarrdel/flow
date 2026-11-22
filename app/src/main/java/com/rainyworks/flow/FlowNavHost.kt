@@ -20,6 +20,7 @@ import com.rainyworks.flow.feature.export.ExportViewModel
 import com.rainyworks.flow.feature.home.HomeScreen
 import com.rainyworks.flow.feature.home.HomeStrings
 import com.rainyworks.flow.feature.home.HomeViewModel
+import kotlinx.coroutines.flow.map
 import kotlinx.serialization.Serializable
 import com.rainyworks.flow.feature.editor.R as EditorR
 import com.rainyworks.flow.feature.home.R as HomeR
@@ -68,6 +69,8 @@ fun FlowNavHost(container: AppContainer) {
                             recorder = VoiceRecorder(container.application),
                             fonts = container.fontStore,
                             contentResolver = container.application.contentResolver,
+                            previewShortSide = container.editorPreferences.previewQuality.map { it.shortSidePx },
+                            reverser = { media, progress -> container.reverseProxy.create(media, progress) },
                         )
                     }
                 },
@@ -80,7 +83,7 @@ fun FlowNavHost(container: AppContainer) {
             )
         }
         composable<AboutRoute> {
-            AboutScreen(onBack = { navController.popBackStack() })
+            AboutScreen(preferences = container.editorPreferences, onBack = { navController.popBackStack() })
         }
         composable<ExportRoute> { entry ->
             val route = entry.toRoute<ExportRoute>()
@@ -123,4 +126,8 @@ private fun editorStrings(context: Context) = EditorStrings(
     subtitlesImported = context.getString(EditorR.string.editor_subtitles_imported),
     subtitlesExported = context.getString(EditorR.string.editor_subtitles_exported),
     transitionAppliedToAll = context.getString(EditorR.string.editor_transition_applied_to_all),
+    reversing = context.getString(EditorR.string.editor_reversing),
+    reverseFailed = context.getString(EditorR.string.editor_reverse_failed),
+    reverseRemoved = context.getString(EditorR.string.editor_reverse_removed),
+    cannotReverse = context.getString(EditorR.string.editor_cannot_reverse),
 )

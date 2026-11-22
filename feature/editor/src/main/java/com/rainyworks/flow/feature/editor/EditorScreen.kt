@@ -157,6 +157,13 @@ fun EditorScreen(
                 modifier = panelModifier,
             )
         }
+        state.task?.let { task ->
+            TaskProgressCard(
+                task = task,
+                onCancel = { viewModel.onAction(EditorAction.CancelTask) },
+                modifier = Modifier.align(Alignment.Center),
+            )
+        }
         SnackbarHost(
             hostState = snackbar,
             modifier = Modifier
@@ -168,3 +175,25 @@ fun EditorScreen(
 }
 
 private const val MAX_PICK = 50
+
+@Composable
+private fun TaskProgressCard(task: BackgroundTask, onCancel: () -> Unit, modifier: Modifier = Modifier) {
+    androidx.compose.material3.Surface(
+        modifier = modifier.padding(32.dp),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
+        color = androidx.compose.material3.MaterialTheme.colorScheme.surfaceContainerHigh,
+        tonalElevation = 6.dp,
+    ) {
+        androidx.compose.foundation.layout.Column(
+            modifier = Modifier.padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            androidx.compose.material3.Text(task.label, style = androidx.compose.material3.MaterialTheme.typography.titleSmall)
+            androidx.compose.foundation.layout.Spacer(Modifier.padding(6.dp))
+            androidx.compose.material3.LinearProgressIndicator(progress = { task.progress })
+            androidx.compose.foundation.layout.Spacer(Modifier.padding(4.dp))
+            androidx.compose.material3.Text("${(task.progress * 100).toInt()}%")
+            androidx.compose.material3.TextButton(onClick = onCancel) { androidx.compose.material3.Text("Cancelar") }
+        }
+    }
+}

@@ -4,6 +4,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import com.rainyworks.flow.core.model.AnimatedProperty
 import com.rainyworks.flow.core.model.Clip
+import com.rainyworks.flow.core.model.ClipAnimations
 import com.rainyworks.flow.core.model.CropRect
 import com.rainyworks.flow.core.model.Mask
 import com.rainyworks.flow.core.model.MediaEdits
@@ -21,15 +22,11 @@ private const val MIN_CROP_SIZE = 0.08f
 private const val CROP_EPSILON = 0.001f
 
 /**
- * Resolves the clip's [Transform] at [timelineUs] by evaluating any keyframe animations
- * on offsetX, offsetY, scale and rotationDegrees.
+ * Resolves the clip's rendered [Transform] at [timelineUs] by combining keyframe animations
+ * and entrance/exit animations.
  */
-internal fun Clip.animatedTransformAt(timelineUs: Long): Transform = transform.copy(
-    offsetX = MediaEdits.propertyValue(this, AnimatedProperty.OFFSET_X, timelineUs),
-    offsetY = MediaEdits.propertyValue(this, AnimatedProperty.OFFSET_Y, timelineUs),
-    scale = MediaEdits.propertyValue(this, AnimatedProperty.SCALE, timelineUs),
-    rotationDegrees = MediaEdits.propertyValue(this, AnimatedProperty.ROTATION, timelineUs),
-)
+internal fun Clip.animatedTransformAt(timelineUs: Long): Transform =
+    ClipAnimations.renderedTransform(this, timelineUs).first
 
 /**
  * Resolves the clip's [Mask] at [timelineUs] by evaluating any keyframe animations

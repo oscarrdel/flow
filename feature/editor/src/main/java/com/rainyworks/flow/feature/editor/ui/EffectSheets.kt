@@ -1,5 +1,11 @@
 package com.rainyworks.flow.feature.editor.ui
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -10,6 +16,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -37,6 +44,7 @@ import androidx.compose.material.icons.rounded.Flare
 import androidx.compose.material.icons.rounded.GridOn
 import androidx.compose.material.icons.rounded.Vibration
 import androidx.compose.material.icons.rounded.ZoomIn
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -44,6 +52,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -51,6 +60,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -60,21 +70,27 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.rainyworks.flow.core.designsystem.components.FlowBottomPanel
+import com.rainyworks.flow.core.designsystem.components.FlowLabeledSlider
 import com.rainyworks.flow.core.designsystem.theme.FlowColors
 import com.rainyworks.flow.core.designsystem.theme.FlowTheme
 import com.rainyworks.flow.core.designsystem.theme.FlowTypography
 import com.rainyworks.flow.core.model.Clip
+import com.rainyworks.flow.core.model.ClipAnimation
+import com.rainyworks.flow.core.model.ClipAnimationType
+import com.rainyworks.flow.core.model.ClipAnimations
 import com.rainyworks.flow.core.model.ClipKind
 import com.rainyworks.flow.core.model.EffectCatalog
 import com.rainyworks.flow.core.model.EffectCategory
 import com.rainyworks.flow.core.model.EffectDefinition
 import com.rainyworks.flow.core.model.EffectInstance
 import com.rainyworks.flow.core.model.EffectParam
+import com.rainyworks.flow.core.model.MotionSample
 import com.rainyworks.flow.core.model.Timecode
 import com.rainyworks.flow.core.model.Transition
 import com.rainyworks.flow.core.model.TransitionCatalog
@@ -797,5 +813,334 @@ private fun DrawScope.drawArrowIcon(color: Color, strokeWidth: Float, dx: Float,
         )
     }
 }
+
+// endregion
+
+// region 3. In/Out ("Entrada y salida") Panel
+
+private const val DEFAULT_IN_OUT_DURATION_US = 500_000L
+private const val IN_OUT_PREVIEW_CYCLE_MS = 1_300
+private const val EXIT_PREVIEW_LEAD_US = 1_000_000L
+
+private enum class InOutTab(val label: String) {
+    Enter("Entrada"),
+    Exit("Salida"),
+}
+
+private fun Clip.supportsInOutAnimation(): Boolean =
+    kind == ClipKind.VIDEO || kind == ClipKind.IMAGE || kind == ClipKind.TEXT
+
+internal fun ClipAnimationType?.spanishLabel(): String = when (this) {
+    null -> "Ninguna"
+    ClipAnimationType.FADE -> "Aparecer"
+    ClipAnimationType.ZOOM_IN -> "Acercar"
+    ClipAnimationType.ZOOM_OUT -> "Alejar"
+    ClipAnimationType.SLIDE_UP -> "Subir"
+    ClipAnimationType.SLIDE_DOWN -> "Bajar"
+    ClipAnimationType.SLIDE_LEFT -> "Izquierda"
+    ClipAnimationType.SLIDE_RIGHT -> "Derecha"
+    ClipAnimationType.SPIN -> "Girar"
+    ClipAnimationType.POP -> "Rebote"
+    ClipAnimationType.BLUR_IN -> "Enfocar"
+}
+
+private val InOutAnimationOptions: List<ClipAnimationType?> =
+    listOf<ClipAnimationType?>(null) + ClipAnimationType.entries
+
+@Composable
+internal fun InOutSheetPanel(
+    state: EditorUiState,
+    onAction: (EditorAction) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val spacing = FlowTheme.spacing
+    val clip = rememberSelectedClip(state)?.takeIf { it.supportsInOutAnimation() }
+    val clipId = clip?.id
+
+    var activeTab by remember { mutableStateOf(InOutTab.Enter) }
+    val isEntering = activeTab == InOutTab.Enter
+    val currentAnimation = if (isEntering) clip?.enterAnimation else clip?.exitAnimation
+    val selectedType = currentAnimation?.type
+
+    val minDurationUs = ClipAnimations.MIN_DURATION_US
+    val maxDurationUs = ClipAnimations.MAX_DURATION_US
+    val minSec = minDurationUs.toFloat() / Timecode.US_PER_SECOND.toFloat()
+    val maxSec = maxDurationUs.toFloat() / Timecode.US_PER_SECOND.toFloat()
+
+    var enterDurationUs by remember(clipId) {
+        mutableLongStateOf(
+            (clip?.enterAnimation?.durationUs ?: DEFAULT_IN_OUT_DURATION_US)
+                .coerceIn(minDurationUs, maxDurationUs)
+        )
+    }
+    var exitDurationUs by remember(clipId) {
+        mutableLongStateOf(
+            (clip?.exitAnimation?.durationUs ?: DEFAULT_IN_OUT_DURATION_US)
+                .coerceIn(minDurationUs, maxDurationUs)
+        )
+    }
+
+    LaunchedEffect(clip?.enterAnimation?.durationUs) {
+        val activeUs = clip?.enterAnimation?.durationUs
+        if (activeUs != null) {
+            enterDurationUs = activeUs.coerceIn(minDurationUs, maxDurationUs)
+        }
+    }
+    LaunchedEffect(clip?.exitAnimation?.durationUs) {
+        val activeUs = clip?.exitAnimation?.durationUs
+        if (activeUs != null) {
+            exitDurationUs = activeUs.coerceIn(minDurationUs, maxDurationUs)
+        }
+    }
+
+    val effectiveDurationUs = (currentAnimation?.durationUs ?: if (isEntering) enterDurationUs else exitDurationUs)
+        .coerceIn(minDurationUs, maxDurationUs)
+    val externalSec = (effectiveDurationUs.toFloat() / Timecode.US_PER_SECOND.toFloat())
+        .coerceIn(minSec, maxSec)
+    var sliderSec by remember(clipId, activeTab, effectiveDurationUs) {
+        mutableFloatStateOf(externalSec)
+    }
+
+    fun secondsToDurationUs(seconds: Float): Long {
+        val tenths = (seconds * 10f).roundToInt()
+        return (tenths * 100_000L).coerceIn(minDurationUs, maxDurationUs)
+    }
+
+    fun emitAnimation(animation: ClipAnimation?) {
+        val targetId = clipId ?: return
+        if (isEntering) {
+            onAction(EditorAction.SetEnterAnimation(targetId, animation))
+        } else {
+            onAction(EditorAction.SetExitAnimation(targetId, animation))
+        }
+    }
+
+    val infiniteTransition = rememberInfiniteTransition(label = "inOutLoop")
+    val rawCycle by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = IN_OUT_PREVIEW_CYCLE_MS, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "inOutProgress",
+    )
+    val previewProgress = if (isEntering) rawCycle else 1f - rawCycle
+
+    val subtitle = if (selectedType == null) {
+        "${activeTab.label}: Ninguna"
+    } else {
+        String.format(Locale.US, "%s: %s · %.1f s", activeTab.label, selectedType.spanishLabel(), sliderSec)
+    }
+
+    FlowBottomPanel(
+        title = "Entrada y salida",
+        subtitle = subtitle,
+        onDismiss = { onAction(EditorAction.DismissSheet) },
+        modifier = modifier,
+    ) {
+        if (clip == null) {
+            SheetEmptyMessage("Selecciona un clip visual para animar su entrada o salida.")
+            return@FlowBottomPanel
+        }
+
+        Column(verticalArrangement = Arrangement.spacedBy(spacing.xs)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(spacing.sm),
+            ) {
+                InOutTab.entries.forEach { tab ->
+                    val hasAnim = if (tab == InOutTab.Enter) {
+                        clip.enterAnimation != null
+                    } else {
+                        clip.exitAnimation != null
+                    }
+                    FilterChip(
+                        selected = activeTab == tab,
+                        onClick = { activeTab = tab },
+                        label = {
+                            Text(
+                                text = tab.label,
+                                style = FlowTypography.labelMedium,
+                            )
+                        },
+                        trailingIcon = if (hasAnim) {
+                            {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(FlowColors.Accent),
+                                )
+                            }
+                        } else {
+                            null
+                        },
+                        colors = sheetChipColors(),
+                    )
+                }
+            }
+
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(spacing.sm),
+                contentPadding = PaddingValues(vertical = 2.dp),
+            ) {
+                items(
+                    items = InOutAnimationOptions,
+                    key = { it?.name ?: "NONE" },
+                ) { type ->
+                    InOutAnimationCard(
+                        type = type,
+                        selected = selectedType == type,
+                        progress = previewProgress,
+                        entering = isEntering,
+                        onClick = {
+                            val currentDuration = secondsToDurationUs(sliderSec)
+                            if (type == null) {
+                                emitAnimation(null)
+                            } else {
+                                if (isEntering) {
+                                    enterDurationUs = currentDuration
+                                } else {
+                                    exitDurationUs = currentDuration
+                                }
+                                emitAnimation(ClipAnimation(type = type, durationUs = currentDuration))
+                                val targetSeekUs = if (isEntering) {
+                                    clip.startUs
+                                } else {
+                                    (clip.endUs - EXIT_PREVIEW_LEAD_US).coerceAtLeast(clip.startUs)
+                                }
+                                onAction(EditorAction.Seek(targetSeekUs, final = true))
+                            }
+                        },
+                    )
+                }
+            }
+
+            FlowLabeledSlider(
+                label = "Duración",
+                valueText = String.format(Locale.US, "%.1f s", sliderSec.coerceIn(minSec, maxSec)),
+                value = sliderSec,
+                valueRange = minSec..maxSec,
+                enabled = selectedType != null,
+                onValueChange = { sec ->
+                    sliderSec = ((sec * 10f).roundToInt() / 10f).coerceIn(minSec, maxSec)
+                },
+                onValueChangeFinished = {
+                    val updatedUs = secondsToDurationUs(sliderSec)
+                    if (isEntering) {
+                        enterDurationUs = updatedUs
+                    } else {
+                        exitDurationUs = updatedUs
+                    }
+                    val activeType = selectedType
+                    if (activeType != null) {
+                        emitAnimation(ClipAnimation(type = activeType, durationUs = updatedUs))
+                    }
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun InOutAnimationCard(
+    type: ClipAnimationType?,
+    selected: Boolean,
+    progress: Float,
+    entering: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val shape = RoundedCornerShape(10.dp)
+    val previewShape = RoundedCornerShape(7.dp)
+    val tint = if (selected) FlowColors.Accent else FlowColors.TextPrimary
+
+    Column(
+        modifier = modifier
+            .width(74.dp)
+            .clip(shape)
+            .background(
+                if (selected) FlowColors.AccentDim.copy(alpha = 0.45f) else FlowColors.Slate
+            )
+            .border(
+                width = if (selected) 1.5.dp else 1.dp,
+                color = if (selected) FlowColors.Accent else FlowColors.Outline,
+                shape = shape,
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 5.dp, vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(42.dp)
+                .clip(previewShape)
+                .background(FlowColors.Graphite)
+                .clipToBounds(),
+            contentAlignment = Alignment.Center,
+        ) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val sample = if (type != null) {
+                    ClipAnimations.shape(type, progress, entering = entering)
+                } else {
+                    MotionSample.Identity
+                }
+                val rectW = size.width * 0.46f
+                val rectH = size.height * 0.50f
+                val cx = size.width / 2f + sample.offsetX * size.width
+                val cy = size.height / 2f + sample.offsetY * size.height
+                val alpha = sample.opacity.coerceIn(0f, 1f)
+                val safeScale = sample.scale.coerceAtLeast(0.01f)
+
+                withTransform({
+                    translate(cx, cy)
+                    rotate(sample.rotationDegrees, pivot = Offset.Zero)
+                    scale(safeScale, safeScale, pivot = Offset.Zero)
+                }) {
+                    val topLeft = Offset(-rectW / 2f, -rectH / 2f)
+                    val rectSize = Size(rectW, rectH)
+                    val corner = CornerRadius(3.dp.toPx(), 3.dp.toPx())
+                    drawRoundRect(
+                        color = tint.copy(alpha = (if (type == null) 0.16f else 0.32f) * alpha),
+                        topLeft = topLeft,
+                        size = rectSize,
+                        cornerRadius = corner,
+                    )
+                    drawRoundRect(
+                        color = tint.copy(alpha = alpha),
+                        topLeft = topLeft,
+                        size = rectSize,
+                        cornerRadius = corner,
+                        style = Stroke(width = 1.5.dp.toPx()),
+                    )
+                    if (type == null) {
+                        drawLine(
+                            color = tint.copy(alpha = 0.7f),
+                            start = Offset(-rectW * 0.32f, rectH * 0.32f),
+                            end = Offset(rectW * 0.32f, -rectH * 0.32f),
+                            strokeWidth = 1.5.dp.toPx(),
+                            cap = StrokeCap.Round,
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(4.dp))
+
+        Text(
+            text = type.spanishLabel(),
+            style = FlowTypography.labelSmall,
+            color = if (selected) FlowColors.Accent else FlowColors.TextPrimary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+        )
+    }
+}
+
+// endregion
 
 // endregion

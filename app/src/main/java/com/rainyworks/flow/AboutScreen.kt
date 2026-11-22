@@ -17,6 +17,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -37,6 +38,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.activity.compose.BackHandler
 import androidx.core.net.toUri
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.rainyworks.flow.core.data.EditorPreferences
+import com.rainyworks.flow.core.data.PreviewQuality
 import com.rainyworks.flow.core.designsystem.theme.FlowColors
 import com.rainyworks.flow.core.designsystem.theme.FlowTheme
 import kotlinx.coroutines.Dispatchers
@@ -57,7 +61,8 @@ private val components = listOf(
 private const val SOURCE_URL = "https://github.com/oscarrdel/flow"
 
 @Composable
-fun AboutScreen(onBack: () -> Unit) {
+fun AboutScreen(preferences: EditorPreferences, onBack: () -> Unit) {
+    val quality by preferences.previewQuality.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var open by remember { mutableStateOf<Pair<String, String>?>(null) }
     BackHandler { if (open != null) open = null else onBack() }
@@ -68,7 +73,7 @@ fun AboutScreen(onBack: () -> Unit) {
                 IconButton(onClick = { if (open != null) open = null else onBack() }) {
                     Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Volver")
                 }
-                Text(open?.first ?: "Acerca de Flow", style = MaterialTheme.typography.titleLarge)
+                Text(open?.first ?: "Ajustes", style = MaterialTheme.typography.titleLarge)
             }
             val current = open
             if (current != null) {
@@ -76,6 +81,31 @@ fun AboutScreen(onBack: () -> Unit) {
             } else {
                 LazyColumn(Modifier.padding(horizontal = FlowTheme.spacing.lg)) {
                     item {
+                        Text("Calidad de la vista previa", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "Solo cambia lo que ves mientras editas. El video exportado usa la calidad que elijas al exportar.",
+                            color = FlowColors.TextSecondary,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Spacer(Modifier.height(FlowTheme.spacing.sm))
+                        PreviewQuality.entries.forEach { option ->
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable { preferences.setPreviewQuality(option) }
+                                    .padding(vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                RadioButton(selected = quality == option, onClick = { preferences.setPreviewQuality(option) })
+                                Column {
+                                    Text(option.label, style = MaterialTheme.typography.titleSmall)
+                                    Text(option.description, color = FlowColors.TextSecondary, style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(FlowTheme.spacing.lg))
+                        HorizontalDivider(color = FlowColors.Steel)
+                        Spacer(Modifier.height(FlowTheme.spacing.lg))
                         Text("Flow ${BuildConfigVersion.name}", style = MaterialTheme.typography.titleMedium)
                         Spacer(Modifier.height(FlowTheme.spacing.sm))
                         Text(

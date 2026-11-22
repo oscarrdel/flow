@@ -7,6 +7,7 @@ import com.rainyworks.flow.core.model.MediaRef
 import com.rainyworks.flow.core.model.AudioEffects
 import com.rainyworks.flow.core.model.BlendMode
 import com.rainyworks.flow.core.model.ChromaKey
+import com.rainyworks.flow.core.model.ClipAnimation
 import com.rainyworks.flow.core.model.ColorGrade
 import com.rainyworks.flow.core.model.Easing
 import com.rainyworks.flow.core.model.Mask
@@ -32,6 +33,8 @@ data class EditorUiState(
     val audioPanelOpen: Boolean = false,
     /** When set, the next tap on the preview samples a color for this clip's chroma key. */
     val pickingChromaFor: String? = null,
+    /** A long-running job such as generating a reversed clip; shows a progress card. */
+    val task: BackgroundTask? = null,
     /** Main-track clip whose incoming transition is being edited. */
     val transitionClipId: String? = null,
     /** Fonts the user imported, as (display name, font id/URI) pairs. */
@@ -57,10 +60,12 @@ data class VoiceOverUiState(
     val mutePreview: Boolean = true,
 )
 
+data class BackgroundTask(val label: String, val progress: Float)
+
 enum class EditorSheet {
     Speed, Volume, AspectRatio, Background, Transform, Crop, Opacity,
     Filters, Adjust, Curves, Hsl, Text, Subtitles,
-    Chroma, Blend, Mask, Keyframes, AudioEffects, Fades, Effects, Transition,
+    Chroma, Blend, Mask, Keyframes, AudioEffects, Fades, Effects, Transition, InOut,
 }
 
 /** Global tools shown in the bottom bar when no clip is selected. */
@@ -69,7 +74,7 @@ enum class GlobalTool { Edit, Audio, Text, Overlay, Effects, Filters, Format, Ca
 /** Tools shown in the bottom bar when a clip is selected. */
 enum class ClipTool {
     Split, Speed, Volume, Transform, Opacity, Duplicate, Delete, Replace, Freeze, Reverse, Crop, Chroma, Mask, Animation,
-    Filters, Adjust, EditText, Blend, AudioEffects, Fades, Extract, Effects,
+    Filters, Adjust, EditText, Blend, AudioEffects, Fades, Extract, Effects, InOut,
 }
 
 sealed interface EditorAction {
@@ -125,6 +130,8 @@ sealed interface EditorAction {
     data class UpdateSubtitle(val clipId: String, val cue: SubtitleCue) : EditorAction
     data class RemoveSubtitle(val clipId: String) : EditorAction
 
+    data object CancelTask : EditorAction
+
     /** System back: closes the open panel, then the selection, then the editor. */
     data object Back : EditorAction
     data object ImportSrt : EditorAction
@@ -159,6 +166,10 @@ sealed interface EditorAction {
     data class OpenTransition(val clipId: String) : EditorAction
     data class SetTransition(val clipId: String, val transition: Transition?, val final: Boolean) : EditorAction
     data class ApplyTransitionToAll(val transition: Transition?) : EditorAction
+
+    /** Entrance/exit animation of a visual clip; null removes it. */
+    data class SetEnterAnimation(val clipId: String, val animation: ClipAnimation?) : EditorAction
+    data class SetExitAnimation(val clipId: String, val animation: ClipAnimation?) : EditorAction
 
     data class SetAudioPanel(val open: Boolean) : EditorAction
     data object AddAudioFile : EditorAction

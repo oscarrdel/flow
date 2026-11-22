@@ -175,6 +175,7 @@ private fun GlobalTool.icon(): ImageVector = when (this) {
 }
 
 private val VisualOnlyTools = setOf(
+    ClipTool.InOut,
     ClipTool.Transform,
     ClipTool.Opacity,
     ClipTool.Crop,
@@ -232,6 +233,16 @@ private val AdjustmentLayerTools = listOf(
     ClipTool.Delete,
 )
 
+private fun List<ClipTool>.withInOutNearFront(): List<ClipTool> {
+    if (ClipTool.InOut !in this) return this
+    val without = filterNot { it == ClipTool.InOut }.toMutableList()
+    val insertIndex = without.indexOfFirst { it == ClipTool.EditText || it == ClipTool.Split }
+        .let { if (it >= 0) it + 1 else 0 }
+        .coerceAtMost(without.size)
+    without.add(insertIndex, ClipTool.InOut)
+    return without
+}
+
 internal fun clipToolsFor(
     kind: ClipKind?,
     trackKind: TrackKind? = null,
@@ -240,15 +251,15 @@ internal fun clipToolsFor(
     val isOverlay = trackKind == TrackKind.OVERLAY
     val base = when (kind) {
         ClipKind.AUDIO -> ClipTool.entries.filterNot { it in VisualOnlyTools || it == ClipTool.Extract }
-        ClipKind.IMAGE -> ClipTool.entries.filterNot { it in TimedOnlyTools || it == ClipTool.EditText }
-        ClipKind.TEXT -> listOf(ClipTool.EditText) + ClipTool.entries.filterNot { it in HiddenForTextTools }
+        ClipKind.IMAGE -> ClipTool.entries.filterNot { it in TimedOnlyTools || it == ClipTool.EditText }.withInOutNearFront()
+        ClipKind.TEXT -> (listOf(ClipTool.EditText) + ClipTool.entries.filterNot { it in HiddenForTextTools }).withInOutNearFront()
         ClipKind.ADJUSTMENT -> AdjustmentLayerTools
         ClipKind.EFFECT -> listOf(ClipTool.Effects, ClipTool.Split, ClipTool.Duplicate, ClipTool.Delete)
         else -> ClipTool.entries.filterNot {
             it == ClipTool.EditText ||
                 (!hasAudio && it in AudioClipTools) ||
                 (kind != ClipKind.VIDEO && it == ClipTool.Extract)
-        }
+        }.withInOutNearFront()
     }
     val audioFiltered = if (hasAudio) {
         base.filterNot { kind != ClipKind.VIDEO && it == ClipTool.Extract }
@@ -281,6 +292,7 @@ private fun ClipTool.spanishLabel(): String = when (this) {
     ClipTool.Fades -> "Fundidos"
     ClipTool.Extract -> "Extraer audio"
     ClipTool.Effects -> "Efectos"
+    ClipTool.InOut -> "Entrada/Salida"
 }
 
 private fun ClipTool.icon(): ImageVector = when (this) {
@@ -306,4 +318,5 @@ private fun ClipTool.icon(): ImageVector = when (this) {
     ClipTool.Fades -> Icons.Rounded.Timeline
     ClipTool.Extract -> Icons.Rounded.GraphicEq
     ClipTool.Effects -> Icons.Rounded.AutoAwesome
+    ClipTool.InOut -> Icons.Rounded.Animation
 }

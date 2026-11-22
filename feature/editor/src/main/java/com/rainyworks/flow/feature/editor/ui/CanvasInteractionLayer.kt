@@ -29,11 +29,10 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import com.rainyworks.flow.core.designsystem.theme.FlowColors
-import com.rainyworks.flow.core.model.AnimatedProperty
 import com.rainyworks.flow.core.model.Clip
+import com.rainyworks.flow.core.model.ClipAnimations
 import com.rainyworks.flow.core.model.Mask
 import com.rainyworks.flow.core.model.MaskShape
-import com.rainyworks.flow.core.model.MediaEdits
 import com.rainyworks.flow.core.model.Transform
 import com.rainyworks.flow.feature.editor.EditorAction
 import kotlin.math.PI
@@ -98,7 +97,12 @@ internal fun CanvasInteractionLayer(
                 if (canvasSize.width <= 0f || canvasSize.height <= 0f) return@awaitEachGesture
 
                 val now = currentPlayheadUs()
-                val startTransform = target.animatedTransformAt(now)
+                // Gestures edit the clip's own (keyframed) transform; entrance/exit motion is a
+                // temporary offset and must not be baked into it.
+                val (startTransform, _) = ClipAnimations.renderedTransform(
+                    target.copy(enterAnimation = null, exitAnimation = null),
+                    now,
+                )
                 val clipFrame = frameForClip(target, startTransform, canvasSize, currentTextRenderer)
                 val activeMask = if (currentEditMask) target.animatedMaskAt(now) else null
 
@@ -234,8 +238,8 @@ internal fun CanvasInteractionLayer(
 
         val target = clip ?: return@Canvas
         val now = playheadUs()
-        val transform = gestureTransform ?: target.animatedTransformAt(now)
-        val opacity = MediaEdits.propertyValue(target, AnimatedProperty.OPACITY, now).coerceIn(0f, 1f)
+        val (renderedTransform, opacity) = ClipAnimations.renderedTransform(target, now)
+        val transform = gestureTransform ?: renderedTransform
         val frame = frameForClip(target, transform, size, textRenderer)
         drawClipFrame(frame, alpha = opacity.coerceIn(0.35f, 1f))
 

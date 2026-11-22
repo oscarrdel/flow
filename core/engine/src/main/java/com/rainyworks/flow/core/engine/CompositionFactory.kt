@@ -12,6 +12,7 @@ import androidx.media3.common.audio.ToInt16PcmAudioProcessor
 import androidx.media3.common.util.Size
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.Effect
+import androidx.media3.common.SpeedParameters
 import androidx.media3.effect.OverlayEffect
 import androidx.media3.effect.Presentation
 import androidx.media3.effect.StaticOverlaySettings
@@ -24,6 +25,7 @@ import com.rainyworks.flow.core.engine.color.ColorEffects
 import com.rainyworks.flow.core.engine.compositing.LayerBlendCompositor
 import com.rainyworks.flow.core.engine.compositing.MainRolls
 import com.rainyworks.flow.core.engine.effects.VisualEffects
+import com.rainyworks.flow.core.engine.speed.CurveSpeedProvider
 import com.rainyworks.flow.core.engine.compositing.addCanvasGap
 import com.rainyworks.flow.core.engine.compositing.clipVideoEffects
 import com.rainyworks.flow.core.engine.color.LutCache
@@ -176,8 +178,13 @@ object CompositionFactory {
                     },
                 ),
             )
-        if (!image && clip.speed != 1f) {
-            builder.setSpeed(AudioFx.speedParametersFor(clip))
+        if (!image) {
+            // Media3 passes item-relative times (0 at the clip's trimmed start) to the provider.
+            val curve = CurveSpeedProvider.forClip(clip, timeBaseUs = 0L)
+            when {
+                curve != null -> builder.setSpeed(SpeedParameters(curve, clip.preservePitch))
+                clip.speed != 1f -> builder.setSpeed(AudioFx.speedParametersFor(clip))
+            }
         }
         return builder.build()
     }
