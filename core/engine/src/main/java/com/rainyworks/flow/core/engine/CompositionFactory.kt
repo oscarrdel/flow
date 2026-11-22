@@ -83,7 +83,9 @@ object CompositionFactory {
         val builder = Composition.Builder(sequences)
             .setEffects(Effects(emptyList(), finalEffects))
             .setHdrMode(Composition.HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_OPEN_GL)
-        builder.setVideoCompositorSettings(layers)
+        // Media3 rejects custom compositor settings when only one video sequence exists; a
+        // single layer is handled by the compositor's shader effect alone.
+        if (overlays.size + mainLayers.size > 1) builder.setVideoCompositorSettings(layers)
         return builder.build()
     }
 

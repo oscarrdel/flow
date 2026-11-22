@@ -85,4 +85,25 @@ class TransitionExportTest {
             assertTrue("$type end ${Integer.toHexString(end)}", Color.green(end) > 200)
         }
     }
+
+    @Test
+    fun singleMovedClipExports() {
+        var p = ProjectFactory.create("t", 0L)
+        p = p.copy(canvas = p.canvas.copy(aspectRatio = AspectRatio.R1_1, followFirstClip = false))
+        p = Edits.insertIntoMain(p, listOf(ProjectFactory.clipFor(solid("red2", Color.RED), imageDurationUs = 1_000_000L)))
+        val id = p.mainTrack.clips.single().id
+        p = Edits.updateClip(p, id) { it.copy(transform = com.rainyworks.flow.core.model.Transform(offsetX = 0.5f, scale = 0.5f)) }
+        val video = render(p)
+        val retriever = MediaMetadataRetriever()
+        try {
+            retriever.setDataSource(video.absolutePath)
+            val frame = retriever.getFrameAtTime(500_000, MediaMetadataRetriever.OPTION_CLOSEST)!!
+            val left = frame.getPixel(frame.width / 4, frame.height / 2)
+            val right = frame.getPixel(frame.width * 3 / 4, frame.height / 2)
+            assertTrue("left ${Integer.toHexString(left)}", Color.red(left) < 60)
+            assertTrue("right ${Integer.toHexString(right)}", Color.red(right) > 200)
+        } finally {
+            retriever.release()
+        }
+    }
 }

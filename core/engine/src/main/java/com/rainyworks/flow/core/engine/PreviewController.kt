@@ -3,6 +3,7 @@ package com.rainyworks.flow.core.engine
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import androidx.annotation.MainThread
 import androidx.annotation.OptIn
 import androidx.media3.common.ForwardingSimpleBasePlayer
@@ -50,6 +51,61 @@ class PreviewController @MainThread constructor(context: Context) {
     private var playerFailed = false
     private var pending: Project? = null
     private val rebuild = Runnable { applyPending() }
+
+    // Media3 1.11 can deadlock when an image sequence and a video graph wait on each other
+    // after a gap; playback then sits in BUFFERING forever. Rebuild the player when the
+    // position stops moving while the user wants playback.
+    private var watchedPositionMs = -1L
+    private var watchedSinceMs = 0L
+    private var stallRecoveries = 0
+    private var stallPositionMs = -1L
+    /** Only playback that started and then stopped counts as a stall, not slow first loads. */
+    private var startedSincePrepare = false
+    private val stallWatch = object : Runnable {
+        override fun run() {
+            if (released) return
+            if (!preview.playWhenReady || preview.playbackState == Player.STATE_ENDED || current?.isEmpty != false) {
+                watchedPositionMs = -1L
+                return
+            }
+            if (!startedSincePrepare) {
+                main.postDelayed(this, STALL_CHECK_MS)
+                watchedPositionMs = -1L
+                return
+            }
+            val now = SystemClock.elapsedRealtime()
+            val positionMs = preview.currentPosition
+            if (positionMs != watchedPositionMs) {
+                watchedPositionMs = positionMs
+                watchedSinceMs = now
+            } else if (now - watchedSinceMs >= STALL_TIMEOUT_MS) {
+                recoverFromStall(positionMs)
+                watchedPositionMs = -1L
+            }
+            main.postDelayed(this, STALL_CHECK_MS)
+        }
+    }
+
+    private fun watchForStalls() {
+        main.removeCallbacks(stallWatch)
+        watchedPositionMs = -1L
+        main.postDelayed(stallWatch, STALL_CHECK_MS)
+    }
+
+    private fun recoverFromStall(positionMs: Long) {
+        val project = current ?: return
+        if (positionMs != stallPositionMs) {
+            stallPositionMs = positionMs
+            stallRecoveries = 0
+        }
+        if (stallRecoveries >= MAX_STALL_RECOVERIES) return
+        stallRecoveries++
+        // The second attempt also nudges past the boundary that stalled.
+        val resumeAtMs = if (stallRecoveries > 1) positionMs + STALL_NUDGE_MS else positionMs
+        current = null
+        prepareProject(project, startMs = resumeAtMs, forcePlay = true)
+        current = project
+    }
     private val tick = object : Runnable {
         override fun run() {
             updatePosition()
@@ -59,6 +115,7 @@ class PreviewController @MainThread constructor(context: Context) {
 
     private val listener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
+            if (isPlaying) startedSincePrepare = true
             playing.value = isPlaying
             main.removeCallbacks(tick)
             tick.run()
@@ -114,10 +171,10 @@ class PreviewController @MainThread constructor(context: Context) {
         prepareProject(project)
     }
 
-    private fun prepareProject(project: Project) {
-        val positionMs = preview.currentPosition.coerceIn(0L, project.durationUs / 1_000)
-        val resume = preview.playWhenReady && !project.isEmpty
-        if (current != null) {
+    private fun prepareProject(project: Project, startMs: Long? = null, forcePlay: Boolean = false) {
+        val positionMs = (startMs ?: preview.currentPosition).coerceIn(0L, project.durationUs / 1_000)
+        val resume = (forcePlay || preview.playWhenReady) && !project.isEmpty
+        if (current != null || forcePlay) {
             // setComposition retains the previous video graph in Media3 1.11.1. After a
             // paused edit its replacement renderer can wait indefinitely for the first frame.
             val volume = preview.volume
@@ -131,10 +188,12 @@ class PreviewController @MainThread constructor(context: Context) {
             playerFailed = false
         }
         current = project
+        startedSincePrepare = forcePlay
         try {
             preview.setComposition(CompositionFactory.build(project, forExport = false), positionMs)
             preview.prepare()
             preview.playWhenReady = resume
+            if (resume) watchForStalls()
         } catch (failure: RuntimeException) {
             preview.pause()
             handleFailure(failure, "No se pudo preparar la composición para la vista previa.")
@@ -147,10 +206,14 @@ class PreviewController @MainThread constructor(context: Context) {
         if (current?.isEmpty == false) {
             if (preview.playbackState == Player.STATE_ENDED) preview.seekTo(0)
             preview.play()
+            watchForStalls()
         }
     }
 
-    fun pause() = onMain { preview.pause() }
+    fun pause() = onMain {
+        main.removeCallbacks(stallWatch)
+        preview.pause()
+    }
 
     fun seekTo(timelineUs: Long) = onMain {
         applyPending()
@@ -206,3 +269,8 @@ class PreviewController @MainThread constructor(context: Context) {
         }
     }
 }
+
+private const val STALL_CHECK_MS = 500L
+private const val STALL_TIMEOUT_MS = 1_500L
+private const val STALL_NUDGE_MS = 34L
+private const val MAX_STALL_RECOVERIES = 2
