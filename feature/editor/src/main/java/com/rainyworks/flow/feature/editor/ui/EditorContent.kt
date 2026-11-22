@@ -244,6 +244,7 @@ fun EditorContent(
                 selectedClipId = state.selectedClipId,
                 selectedClipKind = selectedClip?.kind,
                 selectedTrackKind = selection?.first?.kind,
+                selectedClipHasAudio = selectedClip?.hasEditableAudio() == true,
                 onAction = dispatch,
             )
         }

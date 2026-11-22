@@ -21,6 +21,9 @@ import androidx.media3.transformer.EditedMediaItemSequence
 import androidx.media3.transformer.Effects
 import com.rainyworks.flow.core.engine.audiofx.AudioFx
 import com.rainyworks.flow.core.engine.color.ColorEffects
+import com.rainyworks.flow.core.engine.compositing.LayerBlendCompositor
+import com.rainyworks.flow.core.engine.compositing.addCanvasGap
+import com.rainyworks.flow.core.engine.compositing.clipVideoEffects
 import com.rainyworks.flow.core.engine.color.LutCache
 import com.rainyworks.flow.core.engine.text.TextOverlays
 import com.rainyworks.flow.core.engine.text.TextRenderer
@@ -55,22 +58,26 @@ object CompositionFactory {
             it.kind == TrackKind.OVERLAY && !it.hidden && it.clips.any { clip -> clip.hasPicture }
         }.asReversed()
         // Media3 dibuja la primera secuencia de video encima de las siguientes.
-        val sequences = overlays.map { sequence(it, durationUs, canvas, settings.frameRate) }.toMutableList()
-        sequences += sequence(project.mainTrack, durationUs, canvas, settings.frameRate)
+        val hasVideoLayers = overlays.isNotEmpty()
+        val sequences = overlays.map { sequence(it, durationUs, canvas, settings.frameRate, hasVideoLayers) }.toMutableList()
+        sequences += sequence(project.mainTrack, durationUs, canvas, settings.frameRate, hasVideoLayers)
         project.tracks.filter {
             (it.kind == TrackKind.AUDIO || (it.kind == TrackKind.OVERLAY && it !in overlays)) &&
                 !it.hidden && it.clips.any(it::isAudible)
-        }.forEach { sequences += sequence(it, durationUs, canvas, settings.frameRate, audioOnly = true) }
+        }.forEach { sequences += sequence(it, durationUs, canvas, settings.frameRate, hasVideoLayers, audioOnly = true) }
+        // Overlays first (foreground), main track last, matching the video sequence order.
+        val layers = LayerBlendCompositor(canvas, overlays + project.mainTrack)
 
         val textOverlays = titles?.let { TextOverlays.forProject(project, it, canvas.width, canvas.height) }.orEmpty()
         val finalEffects = buildList<Effect> {
+            layers.effect?.let(::add)
             add(fit(canvas))
             if (textOverlays.isNotEmpty()) add(OverlayEffect(textOverlays))
         }
         val builder = Composition.Builder(sequences)
             .setEffects(Effects(emptyList(), finalEffects))
             .setHdrMode(Composition.HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_OPEN_GL)
-        if (overlays.isNotEmpty()) builder.setVideoCompositorSettings(LayerCompositor(canvas, overlays))
+        builder.setVideoCompositorSettings(layers)
         return builder.build()
     }
 
@@ -79,6 +86,7 @@ object CompositionFactory {
         durationUs: Long,
         canvas: Size,
         fps: Int,
+        hasVideoLayers: Boolean,
         audioOnly: Boolean = false,
     ): EditedMediaItemSequence {
         val types = buildSet {
@@ -93,19 +101,17 @@ object CompositionFactory {
             val media = clip.media ?: continue
             if (!audible && !visible) continue
             require(clip.startUs >= cursorUs) { "Hay clips superpuestos en la misma pista." }
-            if (clip.startUs > cursorUs) sequence.addGap(clip.startUs - cursorUs)
-            val presentation = if (track.kind == TrackKind.OVERLAY && visible) {
-                val ratio = media.displayWidth.coerceAtLeast(1).toDouble() / media.displayHeight.coerceAtLeast(1)
-                val height = minOf(canvas.height, (canvas.width / ratio).roundToInt().coerceAtLeast(1))
-                Presentation.createForHeight(height)
-            } else {
-                fit(canvas)
-            }
-            sequence.addItem(editedItem(clip, media, fps, audible, visible, presentation))
+            if (clip.startUs > cursorUs) gap(sequence, types, clip.startUs - cursorUs, canvas)
+            sequence.addItem(editedItem(clip, media, fps, audible, visible, fit(canvas), hasVideoLayers))
             cursorUs = clip.endUs
         }
-        if (cursorUs < durationUs) sequence.addGap(durationUs - cursorUs)
+        if (cursorUs < durationUs) gap(sequence, types, durationUs - cursorUs, canvas)
         return sequence.build()
+    }
+
+    /** Video-only sequences keep a canvas-sized texture across gaps, as the layer compositor expects. */
+    private fun gap(sequence: EditedMediaItemSequence.Builder, types: Set<Int>, durationUs: Long, canvas: Size) {
+        if (types == setOf(C.TRACK_TYPE_VIDEO)) sequence.addCanvasGap(durationUs, canvas) else sequence.addGap(durationUs)
     }
 
     private fun editedItem(
@@ -115,6 +121,7 @@ object CompositionFactory {
         audible: Boolean,
         visible: Boolean,
         presentation: Presentation,
+        hasVideoLayers: Boolean,
     ): EditedMediaItem {
         val image = media.type == MediaType.IMAGE || media.type == MediaType.GIF
         val item = MediaItem.Builder().setUri(media.uri).setMediaId(clip.id)
@@ -146,7 +153,16 @@ object CompositionFactory {
             .setFrameRate(fps)
             .setRemoveAudio(!audible)
             .setRemoveVideo(!visible)
-            .setEffects(Effects(processors, if (visible) ColorEffects.forGrade(clip.color, LutCache::load) + presentation else emptyList()))
+            .setEffects(
+                Effects(
+                    processors,
+                    if (visible) {
+                        clipVideoEffects(clip, ColorEffects.forGrade(clip.color, LutCache::load), presentation, hasVideoLayers)
+                    } else {
+                        emptyList()
+                    },
+                ),
+            )
         if (!image && clip.speed != 1f) {
             builder.setSpeed(AudioFx.speedParametersFor(clip))
         }
@@ -173,31 +189,4 @@ object CompositionFactory {
 
     private fun fit(size: Size) =
         Presentation.createForWidthAndHeight(size.width, size.height, Presentation.LAYOUT_SCALE_TO_FIT)
-
-    private class LayerCompositor(private val canvas: Size, tracks: List<Track>) : VideoCompositorSettings {
-        private val transparent = StaticOverlaySettings.Builder().setAlphaScale(0f).build()
-        private val background = StaticOverlaySettings.Builder().build()
-
-        private data class Layer(val clip: Clip, val settings: OverlaySettings)
-        private val layers = tracks.map { track ->
-            track.clips.filter { it.hasPicture }.sortedBy { it.startUs }.map { clip ->
-                val t = clip.transform
-                Layer(clip, StaticOverlaySettings.Builder()
-                    .setBackgroundFrameAnchor((2 * t.offsetX).coerceIn(-1f, 1f), (-2 * t.offsetY).coerceIn(-1f, 1f))
-                    .setScale(if (t.flipHorizontal) -t.scale else t.scale, if (t.flipVertical) -t.scale else t.scale)
-                    .setRotationDegrees(-t.rotationDegrees)
-                    .setAlphaScale(clip.opacity.coerceIn(0f, 1f))
-                    .build())
-            }
-        }
-
-        override fun getOutputSize(inputSizes: List<Size>) = canvas
-
-        override fun getOverlaySettings(inputId: Int, presentationTimeUs: Long): OverlaySettings {
-            val clips = layers.getOrNull(inputId) ?: return background
-            val index = clips.binarySearchBy(presentationTimeUs) { it.clip.startUs }
-            val layer = clips.getOrNull(if (index >= 0) index else -index - 2)
-            return if (layer != null && layer.clip.contains(presentationTimeUs)) layer.settings else transparent
-        }
-    }
 }

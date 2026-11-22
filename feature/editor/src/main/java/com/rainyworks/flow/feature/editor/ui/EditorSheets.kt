@@ -25,6 +25,8 @@ import androidx.compose.material.icons.rounded.BlurOn
 import androidx.compose.material.icons.rounded.Flip
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Rotate90DegreesCw
+import androidx.compose.material.icons.rounded.Timeline
+import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -167,6 +169,16 @@ internal fun EditorActiveSheet(
             modifier = modifier,
         )
         EditorSheet.Keyframes -> KeyframesSheetPanel(
+            state = state,
+            onAction = onAction,
+            modifier = modifier,
+        )
+        EditorSheet.AudioEffects -> AudioEffectsSheetPanel(
+            state = state,
+            onAction = onAction,
+            modifier = modifier,
+        )
+        EditorSheet.Fades -> FadesSheetPanel(
             state = state,
             onAction = onAction,
             modifier = modifier,
@@ -659,12 +671,21 @@ private fun VolumeSheetPanel(
         mutableFloatStateOf(externalVolume)
     }
     val percent = (localVolume * 100f).roundToInt()
+    val isAmplified = percent > 100
     val presets = remember { listOf(0f, 0.5f, 1f, 1.5f, 2f) }
 
     FlowBottomPanel(
         title = "Volumen",
         subtitle = "Ajusta la ganancia del clip (0% – 200%)",
         onDismiss = { onAction(EditorAction.DismissSheet) },
+        headerTrailing = {
+            SheetActionChip(
+                label = "Fundidos",
+                icon = Icons.Rounded.Timeline,
+                enabled = clipId != null,
+                onClick = { onAction(EditorAction.OpenSheet(EditorSheet.Fades)) },
+            )
+        },
         modifier = modifier,
     ) {
         FlowLabeledSlider(
@@ -695,6 +716,31 @@ private fun VolumeSheetPanel(
                 )
             },
         )
+
+        if (isAmplified) {
+            Spacer(Modifier.height(spacing.xs))
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(FlowColors.Keyframe.copy(alpha = 0.16f))
+                    .border(1.dp, FlowColors.Keyframe.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                    .padding(horizontal = spacing.sm, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.WarningAmber,
+                    contentDescription = null,
+                    tint = FlowColors.Keyframe,
+                    modifier = Modifier.size(16.dp),
+                )
+                Text(
+                    text = "Amplificado",
+                    style = FlowTypography.labelMedium,
+                    color = FlowColors.Keyframe,
+                )
+            }
+        }
 
         Spacer(Modifier.height(spacing.xs))
 

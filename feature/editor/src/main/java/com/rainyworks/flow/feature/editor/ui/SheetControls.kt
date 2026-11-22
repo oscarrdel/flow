@@ -55,6 +55,7 @@ internal fun ResettableSlider(
     onValueChange: (value: Float, final: Boolean) -> Unit,
     modifier: Modifier = Modifier,
     resetValue: Float = 0f,
+    steps: Int = 0,
     enabled: Boolean = true,
 ) {
     var local by remember(value) { mutableFloatStateOf(value) }
@@ -66,6 +67,7 @@ internal fun ResettableSlider(
         valueText = valueText(local),
         value = local,
         valueRange = valueRange,
+        steps = steps,
         enabled = enabled,
         onValueChange = {
             local = it

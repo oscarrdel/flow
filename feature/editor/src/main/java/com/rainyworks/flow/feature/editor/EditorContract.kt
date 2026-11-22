@@ -4,6 +4,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import com.rainyworks.flow.core.model.AspectRatio
 import com.rainyworks.flow.core.model.CanvasBackground
 import com.rainyworks.flow.core.model.MediaRef
+import com.rainyworks.flow.core.model.AudioEffects
 import com.rainyworks.flow.core.model.BlendMode
 import com.rainyworks.flow.core.model.ChromaKey
 import com.rainyworks.flow.core.model.ColorGrade
@@ -56,7 +57,7 @@ data class VoiceOverUiState(
 enum class EditorSheet {
     Speed, Volume, AspectRatio, Background, Transform, Crop, Opacity,
     Filters, Adjust, Curves, Hsl, Text, Subtitles,
-    Chroma, Blend, Mask, Keyframes,
+    Chroma, Blend, Mask, Keyframes, AudioEffects, Fades,
 }
 
 /** Global tools shown in the bottom bar when no clip is selected. */
@@ -65,7 +66,7 @@ enum class GlobalTool { Edit, Audio, Text, Overlay, Effects, Filters, Format, Ca
 /** Tools shown in the bottom bar when a clip is selected. */
 enum class ClipTool {
     Split, Speed, Volume, Transform, Opacity, Duplicate, Delete, Replace, Freeze, Reverse, Crop, Chroma, Mask, Animation,
-    Filters, Adjust, EditText, Blend,
+    Filters, Adjust, EditText, Blend, AudioEffects, Fades, Extract,
 }
 
 sealed interface EditorAction {
@@ -136,6 +137,11 @@ sealed interface EditorAction {
     data class SetKeyframeEasing(val clipId: String, val property: String, val timeUs: Long, val easing: Easing) : EditorAction
     /** Jumps the playhead to the previous/next keyframe of the clip. */
     data class JumpToKeyframe(val clipId: String, val forward: Boolean) : EditorAction
+
+    data class SetAudioEffects(val clipId: String, val effects: AudioEffects, val final: Boolean) : EditorAction
+    data class SetFades(val clipId: String, val fadeInUs: Long, val fadeOutUs: Long, val final: Boolean) : EditorAction
+    data class SetPreservePitch(val clipId: String, val preserve: Boolean) : EditorAction
+    data class SetMuted(val clipId: String, val muted: Boolean) : EditorAction
 
     data class SetAudioPanel(val open: Boolean) : EditorAction
     data object AddAudioFile : EditorAction

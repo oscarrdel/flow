@@ -245,6 +245,21 @@ class EditorViewModel(
                 val target = if (action.forward) times.firstOrNull { it > playhead + 1_000 } else times.lastOrNull { it < playhead - 1_000 }
                 if (target != null) seek(target, final = true)
             }
+            is EditorAction.SetAudioEffects -> drag("audiofx-${action.clipId}", action.final) { project ->
+                Edits.updateClip(project, action.clipId) { it.copy(audioEffects = action.effects) }
+            }
+            is EditorAction.SetFades -> drag("fades-${action.clipId}", action.final) { project ->
+                Edits.updateClip(project, action.clipId) {
+                    val half = it.durationUs / 2
+                    it.copy(fadeInUs = action.fadeInUs.coerceIn(0L, half), fadeOutUs = action.fadeOutUs.coerceIn(0L, half))
+                }
+            }
+            is EditorAction.SetPreservePitch -> current?.let { project ->
+                apply(Edits.updateClip(project, action.clipId) { it.copy(preservePitch = action.preserve) })
+            }
+            is EditorAction.SetMuted -> current?.let { project ->
+                apply(Edits.updateClip(project, action.clipId) { it.copy(muted = action.muted) })
+            }
             is EditorAction.SetAudioPanel -> _state.update { it.copy(audioPanelOpen = action.open, activeSheet = null) }
             EditorAction.AddAudioFile -> {
                 _state.update { it.copy(audioPanelOpen = false) }
@@ -516,6 +531,9 @@ class EditorViewModel(
             ClipTool.Mask -> _state.update { it.copy(activeSheet = EditorSheet.Mask) }
             ClipTool.Blend -> _state.update { it.copy(activeSheet = EditorSheet.Blend) }
             ClipTool.Animation -> _state.update { it.copy(activeSheet = EditorSheet.Keyframes) }
+            ClipTool.AudioEffects -> _state.update { it.copy(activeSheet = EditorSheet.AudioEffects) }
+            ClipTool.Fades -> _state.update { it.copy(activeSheet = EditorSheet.Fades) }
+            ClipTool.Extract -> extractAudio()
             ClipTool.Duplicate -> apply(Edits.duplicate(project, clipId))
             ClipTool.Delete -> {
                 apply(Edits.delete(project, clipId))

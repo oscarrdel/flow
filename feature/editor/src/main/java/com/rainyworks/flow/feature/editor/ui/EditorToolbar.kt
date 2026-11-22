@@ -24,7 +24,9 @@ import androidx.compose.material.icons.rounded.Contrast
 import androidx.compose.material.icons.rounded.Crop
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Equalizer
 import androidx.compose.material.icons.rounded.Exposure
+import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.MusicNote
@@ -34,6 +36,7 @@ import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Subtitles
 import androidx.compose.material.icons.rounded.SwapHoriz
+import androidx.compose.material.icons.rounded.Timeline
 import androidx.compose.material.icons.rounded.Title
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.VerticalDivider
@@ -66,10 +69,11 @@ internal fun EditorBottomToolbar(
     onAction: (EditorAction) -> Unit,
     modifier: Modifier = Modifier,
     selectedTrackKind: TrackKind? = null,
+    selectedClipHasAudio: Boolean = selectedClipKind == ClipKind.AUDIO || selectedClipKind == ClipKind.VIDEO,
 ) {
     val spacing = FlowTheme.spacing
-    val clipTools = remember(selectedClipKind, selectedTrackKind) {
-        clipToolsFor(selectedClipKind, selectedTrackKind)
+    val clipTools = remember(selectedClipKind, selectedTrackKind, selectedClipHasAudio) {
+        clipToolsFor(selectedClipKind, selectedTrackKind, selectedClipHasAudio)
     }
 
     Row(
@@ -189,6 +193,15 @@ private val TimedOnlyTools = setOf(
     ClipTool.Reverse,
     ClipTool.Freeze,
     ClipTool.Volume,
+    ClipTool.AudioEffects,
+    ClipTool.Fades,
+    ClipTool.Extract,
+)
+
+private val AudioClipTools = setOf(
+    ClipTool.AudioEffects,
+    ClipTool.Fades,
+    ClipTool.Extract,
 )
 
 private val HiddenForTextTools = setOf(
@@ -204,6 +217,9 @@ private val HiddenForTextTools = setOf(
     ClipTool.Mask,
     ClipTool.EditText,
     ClipTool.Blend,
+    ClipTool.AudioEffects,
+    ClipTool.Fades,
+    ClipTool.Extract,
 )
 
 private val AdjustmentLayerTools = listOf(
@@ -217,17 +233,27 @@ private val AdjustmentLayerTools = listOf(
 internal fun clipToolsFor(
     kind: ClipKind?,
     trackKind: TrackKind? = null,
+    hasAudio: Boolean = kind == ClipKind.AUDIO || kind == ClipKind.VIDEO,
 ): List<ClipTool> {
     val isOverlay = trackKind == TrackKind.OVERLAY
     val base = when (kind) {
-        ClipKind.AUDIO -> ClipTool.entries.filterNot { it in VisualOnlyTools }
+        ClipKind.AUDIO -> ClipTool.entries.filterNot { it in VisualOnlyTools || it == ClipTool.Extract }
         ClipKind.IMAGE -> ClipTool.entries.filterNot { it in TimedOnlyTools || it == ClipTool.EditText }
         ClipKind.TEXT -> listOf(ClipTool.EditText) + ClipTool.entries.filterNot { it in HiddenForTextTools }
         ClipKind.ADJUSTMENT -> AdjustmentLayerTools
         ClipKind.EFFECT -> listOf(ClipTool.Split, ClipTool.Duplicate, ClipTool.Delete)
-        else -> ClipTool.entries.filterNot { it == ClipTool.EditText }
+        else -> ClipTool.entries.filterNot {
+            it == ClipTool.EditText ||
+                (!hasAudio && it in AudioClipTools) ||
+                (kind != ClipKind.VIDEO && it == ClipTool.Extract)
+        }
     }
-    return if (isOverlay) base else base.filterNot { it == ClipTool.Blend }
+    val audioFiltered = if (hasAudio) {
+        base.filterNot { kind != ClipKind.VIDEO && it == ClipTool.Extract }
+    } else {
+        base.filterNot { it in AudioClipTools }
+    }
+    return if (isOverlay) audioFiltered else audioFiltered.filterNot { it == ClipTool.Blend }
 }
 
 private fun ClipTool.spanishLabel(): String = when (this) {
@@ -249,6 +275,9 @@ private fun ClipTool.spanishLabel(): String = when (this) {
     ClipTool.Adjust -> "Ajustes"
     ClipTool.EditText -> "Editar"
     ClipTool.Blend -> "Fusión"
+    ClipTool.AudioEffects -> "Efectos de sonido"
+    ClipTool.Fades -> "Fundidos"
+    ClipTool.Extract -> "Extraer audio"
 }
 
 private fun ClipTool.icon(): ImageVector = when (this) {
@@ -270,4 +299,7 @@ private fun ClipTool.icon(): ImageVector = when (this) {
     ClipTool.Adjust -> Icons.Rounded.Tune
     ClipTool.EditText -> Icons.Rounded.Edit
     ClipTool.Blend -> Icons.Rounded.Layers
+    ClipTool.AudioEffects -> Icons.Rounded.Equalizer
+    ClipTool.Fades -> Icons.Rounded.Timeline
+    ClipTool.Extract -> Icons.Rounded.GraphicEq
 }

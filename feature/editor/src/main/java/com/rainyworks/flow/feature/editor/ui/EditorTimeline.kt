@@ -756,11 +756,13 @@ private fun TimelineClipItem(
 
         // Waveform overlay at bottom of video clips or full height on audio tracks
         val peaks = waveform
-        if (isVisible && peaks != null && peaks.isNotEmpty()) {
+        val hasAudioFades = showWaveform && (clip.fadeInUs > 0L || clip.fadeOutUs > 0L)
+        if (isVisible && ((peaks != null && peaks.isNotEmpty()) || hasAudioFades)) {
             val waveformHeight = if (trackKind == TrackKind.AUDIO) trackHeight else 18.dp
             ClipWaveformStrip(
                 clip = clip,
-                peaks = peaks,
+                peaks = peaks ?: FloatArray(0),
+                ppsPx = ppsPx,
                 color = if (trackKind == TrackKind.AUDIO) {
                     FlowColors.TextPrimary.copy(alpha = 0.85f)
                 } else {
@@ -1064,39 +1066,86 @@ private fun TrimHandle(
 private fun ClipWaveformStrip(
     clip: Clip,
     peaks: FloatArray,
+    ppsPx: Float,
     color: Color,
     modifier: Modifier = Modifier,
 ) {
     Canvas(modifier = modifier) {
-        if (peaks.isEmpty() || size.width <= 0f) return@Canvas
-        val barWidth = 2.dp.toPx()
-        val gap = 1.5.dp.toPx()
-        val step = barWidth + gap
-        val barCount = max(1, (size.width / step).toInt())
+        if (size.width <= 0f || size.height <= 0f) return@Canvas
+        if (peaks.isNotEmpty()) {
+            val barWidth = 2.dp.toPx()
+            val gap = 1.5.dp.toPx()
+            val step = barWidth + gap
+            val barCount = max(1, (size.width / step).toInt())
 
-        val startBucket = ((clip.trimInUs.toDouble() / Timecode.US_PER_SECOND) * WAVEFORM_BUCKETS_PER_SEC).toInt()
-        val endBucket = ((clip.trimOutUs.toDouble() / Timecode.US_PER_SECOND) * WAVEFORM_BUCKETS_PER_SEC)
-            .toInt()
-            .coerceAtLeast(startBucket + 1)
-        val bucketSpan = (endBucket - startBucket).coerceAtLeast(1)
+            val startBucket = ((clip.trimInUs.toDouble() / Timecode.US_PER_SECOND) * WAVEFORM_BUCKETS_PER_SEC).toInt()
+            val endBucket = ((clip.trimOutUs.toDouble() / Timecode.US_PER_SECOND) * WAVEFORM_BUCKETS_PER_SEC)
+                .toInt()
+                .coerceAtLeast(startBucket + 1)
+            val bucketSpan = (endBucket - startBucket).coerceAtLeast(1)
 
-        for (i in 0 until barCount) {
-            val fraction = if (clip.reversed) {
-                1f - (i.toFloat() / barCount.toFloat())
-            } else {
-                i.toFloat() / barCount.toFloat()
+            for (i in 0 until barCount) {
+                val fraction = if (clip.reversed) {
+                    1f - (i.toFloat() / barCount.toFloat())
+                } else {
+                    i.toFloat() / barCount.toFloat()
+                }
+                val bucketIndex = (startBucket + (fraction * bucketSpan).toInt())
+                    .coerceIn(0, peaks.lastIndex)
+                val amplitude = peaks[bucketIndex].coerceIn(0.08f, 1f)
+                val barHeight = (size.height * 0.85f * amplitude).coerceAtLeast(2.dp.toPx())
+                val x = i * step
+                val top = (size.height - barHeight) / 2f
+                drawRoundRect(
+                    color = color,
+                    topLeft = Offset(x, top),
+                    size = Size(barWidth, barHeight),
+                    cornerRadius = CornerRadius(barWidth / 2f, barWidth / 2f),
+                )
             }
-            val bucketIndex = (startBucket + (fraction * bucketSpan).toInt())
-                .coerceIn(0, peaks.lastIndex)
-            val amplitude = peaks[bucketIndex].coerceIn(0.08f, 1f)
-            val barHeight = (size.height * 0.85f * amplitude).coerceAtLeast(2.dp.toPx())
-            val x = i * step
-            val top = (size.height - barHeight) / 2f
-            drawRoundRect(
-                color = color,
-                topLeft = Offset(x, top),
-                size = Size(barWidth, barHeight),
-                cornerRadius = CornerRadius(barWidth / 2f, barWidth / 2f),
+        }
+
+        // Semi-transparent triangular fade-in and fade-out ramps over the audio waveform
+        val fadeInPx = ((clip.fadeInUs.toDouble() / Timecode.US_PER_SECOND) * ppsPx)
+            .toFloat()
+            .coerceIn(0f, size.width)
+        val fadeOutPx = ((clip.fadeOutUs.toDouble() / Timecode.US_PER_SECOND) * ppsPx)
+            .toFloat()
+            .coerceIn(0f, size.width)
+        val rampFillColor = FlowColors.Accent.copy(alpha = 0.28f)
+        val rampStrokeColor = FlowColors.Accent.copy(alpha = 0.9f)
+        val rampStrokeWidth = 1.5.dp.toPx()
+
+        if (fadeInPx > 0.5f) {
+            val fadeInRamp = Path().apply {
+                moveTo(0f, size.height)
+                lineTo(fadeInPx, 0f)
+                lineTo(fadeInPx, size.height)
+                close()
+            }
+            drawPath(path = fadeInRamp, color = rampFillColor)
+            drawLine(
+                color = rampStrokeColor,
+                start = Offset(0f, size.height),
+                end = Offset(fadeInPx, 0f),
+                strokeWidth = rampStrokeWidth,
+            )
+        }
+
+        if (fadeOutPx > 0.5f) {
+            val fadeOutStartX = (size.width - fadeOutPx).coerceAtLeast(0f)
+            val fadeOutRamp = Path().apply {
+                moveTo(fadeOutStartX, 0f)
+                lineTo(size.width, size.height)
+                lineTo(fadeOutStartX, size.height)
+                close()
+            }
+            drawPath(path = fadeOutRamp, color = rampFillColor)
+            drawLine(
+                color = rampStrokeColor,
+                start = Offset(fadeOutStartX, 0f),
+                end = Offset(size.width, size.height),
+                strokeWidth = rampStrokeWidth,
             )
         }
     }
