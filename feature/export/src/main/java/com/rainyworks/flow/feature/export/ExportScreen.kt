@@ -6,6 +6,8 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -165,6 +168,11 @@ private fun ExportSettingsPanel(state: ExportUiState, viewModel: ExportViewModel
 @Composable
 private fun VideoOptions(state: ExportUiState, viewModel: ExportViewModel) {
     Column(verticalArrangement = Arrangement.spacedBy(FlowTheme.spacing.lg)) {
+        PresetSection(
+            selected = state.selectedPreset,
+            showVerticalAspectHint = state.showVerticalAspectHint,
+            onSelect = viewModel::applyPreset,
+        )
         Section("Resolución") {
             ExportResolution.entries.forEach {
                 FilterChip(selected = state.resolution == it, onClick = { viewModel.setResolution(it) }, label = { Text(it.label) })
@@ -263,6 +271,58 @@ private fun AudioOptions(state: ExportUiState, viewModel: ExportViewModel) {
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun PresetSection(
+    selected: ExportPreset,
+    showVerticalAspectHint: Boolean,
+    onSelect: (ExportPreset) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(FlowTheme.spacing.sm)) {
+        Text("Preajustes", style = MaterialTheme.typography.titleSmall)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(FlowTheme.spacing.sm),
+        ) {
+            ExportPreset.entries.forEach { preset ->
+                val isSelected = selected == preset
+                Surface(
+                    onClick = { onSelect(preset) },
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+                    border = BorderStroke(1.dp, if (isSelected) FlowColors.Accent else FlowColors.Outline),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = FlowTheme.spacing.md, vertical = FlowTheme.spacing.sm),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        Text(
+                            text = preset.label,
+                            style = MaterialTheme.typography.labelLarge,
+                            color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else FlowColors.TextPrimary,
+                            maxLines = 1,
+                        )
+                        Text(
+                            text = preset.summary,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (isSelected) FlowColors.TextPrimary.copy(alpha = 0.85f) else FlowColors.TextSecondary,
+                            maxLines = 1,
+                        )
+                    }
+                }
+            }
+        }
+        if (showVerticalAspectHint) {
+            Text(
+                text = "TikTok y Reels se ven mejor en formato 9:16; cámbialo en el editor.",
+                style = MaterialTheme.typography.bodySmall,
+                color = FlowColors.TextSecondary,
+            )
         }
     }
 }

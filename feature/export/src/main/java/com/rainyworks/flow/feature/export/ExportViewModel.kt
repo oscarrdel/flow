@@ -36,6 +36,90 @@ enum class ExportQuality(val factor: Double, val label: String) {
 
 enum class ExportKind(val label: String) { Video("Video"), Gif("GIF"), Audio("Solo audio") }
 
+enum class ExportPreset(
+    val label: String,
+    val resolution: ExportResolution?,
+    val frameRate: Int?,
+    val codec: VideoCodec?,
+    val quality: ExportQuality?,
+) {
+    Custom(
+        label = "Personalizado",
+        resolution = null,
+        frameRate = null,
+        codec = null,
+        quality = null,
+    ),
+    TikTokReels(
+        label = "TikTok / Reels",
+        resolution = ExportResolution.P1080,
+        frameRate = 30,
+        codec = VideoCodec.H264,
+        quality = ExportQuality.High,
+    ),
+    YouTube(
+        label = "YouTube",
+        resolution = ExportResolution.P1080,
+        frameRate = 30,
+        codec = VideoCodec.H264,
+        quality = ExportQuality.High,
+    ),
+    YouTube4K(
+        label = "YouTube 4K",
+        resolution = ExportResolution.K4,
+        frameRate = 30,
+        codec = VideoCodec.HEVC,
+        quality = ExportQuality.High,
+    ),
+    InstagramFeed(
+        label = "Instagram feed",
+        resolution = ExportResolution.P1080,
+        frameRate = 30,
+        codec = VideoCodec.H264,
+        quality = ExportQuality.Medium,
+    ),
+    WhatsApp(
+        label = "WhatsApp",
+        resolution = ExportResolution.P720,
+        frameRate = 30,
+        codec = VideoCodec.H264,
+        quality = ExportQuality.Medium,
+    ),
+    HighQuality(
+        label = "Alta calidad",
+        resolution = ExportResolution.K4,
+        frameRate = 60,
+        codec = VideoCodec.HEVC,
+        quality = ExportQuality.High,
+    );
+
+    val summary: String
+        get() {
+            val res = resolution ?: return "Ajustes manuales"
+            val fps = frameRate ?: return "Ajustes manuales"
+            val codecLabel = when (codec) {
+                VideoCodec.H264 -> "H.264"
+                VideoCodec.HEVC -> "H.265"
+                null -> return "Ajustes manuales"
+            }
+            return "${res.label} · $fps fps · $codecLabel"
+        }
+
+    fun matches(
+        resolution: ExportResolution,
+        frameRate: Int,
+        codec: VideoCodec,
+        quality: ExportQuality,
+    ): Boolean = this.resolution == resolution &&
+        this.frameRate == frameRate &&
+        this.codec == codec &&
+        this.quality == quality
+
+    companion object {
+        val platformPresets: List<ExportPreset> = entries.filter { it != Custom }
+    }
+}
+
 sealed interface ExportPhase {
     data object Configuring : ExportPhase
     data class Rendering(val progress: Float, val etaMs: Long?) : ExportPhase
@@ -60,8 +144,32 @@ data class ExportUiState(
     val estimatedBytes: Long = 0L,
     val freeBytes: Long = 0L,
     val phase: ExportPhase = ExportPhase.Configuring,
+    internal val preferredPreset: ExportPreset? = null,
 ) {
     val hasEnoughSpace: Boolean get() = freeBytes == 0L || estimatedBytes * 11 / 10 < freeBytes
+
+    val isProjectVertical: Boolean
+        get() = project?.canvas?.aspectRatio?.let { it.height > it.width } ?: true
+
+    val selectedPreset: ExportPreset
+        get() {
+            val matching = ExportPreset.platformPresets.filter {
+                it.matches(resolution, frameRate, codec, quality)
+            }
+            return when {
+                matching.isEmpty() -> ExportPreset.Custom
+                matching.size == 1 -> matching.first()
+                preferredPreset in matching -> preferredPreset!!
+                else -> if (isProjectVertical) {
+                    matching.firstOrNull { it == ExportPreset.TikTokReels } ?: matching.first()
+                } else {
+                    matching.firstOrNull { it == ExportPreset.YouTube } ?: matching.first()
+                }
+            }
+        }
+
+    val showVerticalAspectHint: Boolean
+        get() = project != null && !isProjectVertical && selectedPreset == ExportPreset.TikTokReels
 
     val recommendedVideoBitrateMbps: Float?
         get() = project?.let {
@@ -91,22 +199,38 @@ class ExportViewModel(
         }
     }
 
-    fun setResolution(value: ExportResolution) = updateSettings { it.copy(resolution = value) }
-    fun setFrameRate(value: Int) = updateSettings { it.copy(frameRate = value) }
+    fun setResolution(value: ExportResolution) = updateSettings { it.copy(resolution = value, preferredPreset = null) }
+    fun setFrameRate(value: Int) = updateSettings { it.copy(frameRate = value, preferredPreset = null) }
     fun setQuality(value: ExportQuality) = updateSettings { state ->
         if (value == ExportQuality.Custom && state.quality != ExportQuality.Custom) {
             val initialMbps = state.project?.let { project ->
                 roundCustomBitrateMbps(state.settings(project).bitrate(project) / 1_000_000f)
             } ?: state.customVideoBitrateMbps
-            state.copy(quality = value, customVideoBitrateMbps = initialMbps)
+            state.copy(quality = value, customVideoBitrateMbps = initialMbps, preferredPreset = null)
         } else {
-            state.copy(quality = value)
+            state.copy(quality = value, preferredPreset = null)
         }
     }
     fun setCustomVideoBitrate(mbps: Float) = updateSettings {
-        it.copy(customVideoBitrateMbps = roundCustomBitrateMbps(mbps))
+        it.copy(customVideoBitrateMbps = roundCustomBitrateMbps(mbps), preferredPreset = null)
     }
-    fun setCodec(value: VideoCodec) = updateSettings { it.copy(codec = value) }
+    fun setCodec(value: VideoCodec) = updateSettings { it.copy(codec = value, preferredPreset = null) }
+
+    fun applyPreset(preset: ExportPreset) {
+        val resolution = preset.resolution ?: return
+        val frameRate = preset.frameRate ?: return
+        val codec = preset.codec ?: return
+        val quality = preset.quality ?: return
+        updateSettings {
+            it.copy(
+                resolution = resolution,
+                frameRate = frameRate,
+                codec = codec,
+                quality = quality,
+                preferredPreset = preset,
+            )
+        }
+    }
     fun setKind(value: ExportKind) = updateSettings { it.copy(kind = value) }
     fun setAudioFormat(value: AudioFormat) = updateSettings { it.copy(audioFormat = value) }
     fun setAudioBitrate(kbps: Int) = updateSettings { it.copy(audioBitrateKbps = kbps) }
