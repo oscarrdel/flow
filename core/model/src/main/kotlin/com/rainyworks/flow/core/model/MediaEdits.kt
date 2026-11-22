@@ -155,4 +155,91 @@ object MediaEdits {
     }
 
     const val DEFAULT_TEXT_DURATION_US = 3_000_000L
+
+    /** Current (static or animated) value of a keyframeable property at [timelineUs]. */
+    fun propertyValue(clip: Clip, property: String, timelineUs: Long): Float {
+        val static = when (property) {
+            AnimatedProperty.OFFSET_X -> clip.transform.offsetX
+            AnimatedProperty.OFFSET_Y -> clip.transform.offsetY
+            AnimatedProperty.SCALE -> clip.transform.scale
+            AnimatedProperty.ROTATION -> clip.transform.rotationDegrees
+            AnimatedProperty.OPACITY -> clip.opacity
+            AnimatedProperty.VOLUME -> clip.volume
+            AnimatedProperty.MASK_OFFSET_X -> clip.mask?.offsetX ?: 0f
+            AnimatedProperty.MASK_OFFSET_Y -> clip.mask?.offsetY ?: 0f
+            AnimatedProperty.MASK_SCALE -> clip.mask?.scale ?: 1f
+            AnimatedProperty.MASK_ROTATION -> clip.mask?.rotationDegrees ?: 0f
+            AnimatedProperty.MASK_FEATHER -> clip.mask?.feather ?: 0f
+            else -> 0f
+        }
+        return clip.animatedValue(property, timelineUs, static)
+    }
+
+    /**
+     * Adds a keyframe with the current value at [timelineUs], or removes the keyframe that is
+     * already there (within one frame).
+     */
+    fun toggleKeyframe(project: Project, clipId: String, property: String, timelineUs: Long): Project {
+        val clip = project.findClip(clipId)?.second ?: return project
+        if (!clip.contains(timelineUs) && timelineUs != clip.endUs) return project
+        val relative = timelineUs - clip.startUs
+        val existing = clip.keyframes[property].orEmpty()
+        val without = Animator.removeKeyframeNear(existing, relative, KEYFRAME_TOLERANCE_US)
+        val updated = if (without.size != existing.size) {
+            without
+        } else {
+            Animator.setKeyframe(existing, Keyframe(relative, propertyValue(clip, property, timelineUs)))
+        }
+        val keyframes = if (updated.isEmpty()) clip.keyframes - property else clip.keyframes + (property to updated)
+        return Edits.updateClip(project, clipId) { it.copy(keyframes = keyframes) }
+    }
+
+    fun setKeyframeEasing(project: Project, clipId: String, property: String, relativeUs: Long, easing: Easing): Project =
+        Edits.updateClip(project, clipId) { clip ->
+            val list = clip.keyframes[property] ?: return@updateClip clip
+            clip.copy(
+                keyframes = clip.keyframes + (property to list.map {
+                    if (kotlin.math.abs(it.timeUs - relativeUs) <= KEYFRAME_TOLERANCE_US) it.copy(easing = easing) else it
+                }),
+            )
+        }
+
+    /** Timeline times of every keyframe of a clip, sorted and de-duplicated. */
+    fun keyframeTimes(clip: Clip): List<Long> =
+        clip.keyframes.values.flatten().map { clip.startUs + it.timeUs }.distinct().sorted()
+
+    const val KEYFRAME_TOLERANCE_US = 33_333L
+
+    /**
+     * Applies a new transform. Properties that are already animated get a keyframe at
+     * [timelineUs] instead of a new static value, so gestures edit the animation.
+     */
+    fun setTransformAt(project: Project, clipId: String, transform: Transform, timelineUs: Long): Project =
+        Edits.updateClip(project, clipId) { clip ->
+            val relative = (timelineUs - clip.startUs).coerceIn(0L, clip.durationUs)
+            val animated = mapOf(
+                AnimatedProperty.OFFSET_X to transform.offsetX,
+                AnimatedProperty.OFFSET_Y to transform.offsetY,
+                AnimatedProperty.SCALE to transform.scale,
+                AnimatedProperty.ROTATION to transform.rotationDegrees,
+            ).filterKeys { !clip.keyframes[it].isNullOrEmpty() }
+            if (animated.isEmpty()) return@updateClip clip.copy(transform = transform)
+            var keyframes = clip.keyframes
+            for ((property, value) in animated) {
+                val list = keyframes.getValue(property)
+                val easing = list.minByOrNull { kotlin.math.abs(it.timeUs - relative) }?.easing ?: Easing.LINEAR
+                keyframes = keyframes + (property to Animator.setKeyframe(list, Keyframe(relative, value, easing)))
+            }
+            // Static values of animated properties are kept; the rest of the transform updates.
+            val static = clip.transform.copy(
+                offsetX = if (AnimatedProperty.OFFSET_X in animated) clip.transform.offsetX else transform.offsetX,
+                offsetY = if (AnimatedProperty.OFFSET_Y in animated) clip.transform.offsetY else transform.offsetY,
+                scale = if (AnimatedProperty.SCALE in animated) clip.transform.scale else transform.scale,
+                rotationDegrees = if (AnimatedProperty.ROTATION in animated) clip.transform.rotationDegrees else transform.rotationDegrees,
+                flipHorizontal = transform.flipHorizontal,
+                flipVertical = transform.flipVertical,
+                crop = transform.crop,
+            )
+            clip.copy(transform = static, keyframes = keyframes)
+        }
 }
