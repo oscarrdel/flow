@@ -121,6 +121,22 @@ class PreviewController @MainThread constructor(context: Context) {
         }
     }
 
+    private var bufferRecoveries = 0
+
+    /**
+     * With several picture layers Media3 can leave one sequence buffering forever after a
+     * seek, paused or not, so the preview shows a stale frame and play does nothing. A fresh
+     * player at the same position recovers it; the paused/playing state is kept.
+     */
+    private val bufferWatch = Runnable {
+        if (released || preview.playbackState != Player.STATE_BUFFERING) return@Runnable
+        val project = current ?: return@Runnable
+        if (bufferRecoveries >= MAX_BUFFER_RECOVERIES) return@Runnable
+        bufferRecoveries++
+        // The latest seek target, which may have moved while the player was stuck.
+        prepareProject(project, startMs = preview.currentPosition, forcePlay = preview.playWhenReady)
+    }
+
     private val listener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             if (isPlaying) startedSincePrepare = true
@@ -137,6 +153,12 @@ class PreviewController @MainThread constructor(context: Context) {
 
         override fun onPlaybackStateChanged(playbackState: Int) {
             if (!playerFailed && playbackState == Player.STATE_READY) playbackError.value = null
+            main.removeCallbacks(bufferWatch)
+            if (playbackState == Player.STATE_BUFFERING) {
+                main.postDelayed(bufferWatch, BUFFER_STALL_MS)
+            } else if (playbackState == Player.STATE_READY) {
+                bufferRecoveries = 0
+            }
             updatePosition()
         }
 
@@ -329,6 +351,8 @@ class PreviewController @MainThread constructor(context: Context) {
 
 private const val STALL_CHECK_MS = 500L
 private const val STALL_TIMEOUT_MS = 1_500L
+private const val BUFFER_STALL_MS = 2_500L
+private const val MAX_BUFFER_RECOVERIES = 2
 private const val STALL_NUDGE_MS = 34L
 private const val MAX_STALL_RECOVERIES = 2
 private const val STALL_PROGRESS_MS = 500L
