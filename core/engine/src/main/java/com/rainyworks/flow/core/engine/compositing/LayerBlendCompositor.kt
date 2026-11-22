@@ -25,7 +25,12 @@ import kotlin.math.sin
  * Give each visible item and video gap the same fitted [canvas] dimensions.
  */
 @OptIn(UnstableApi::class)
-class LayerBlendCompositor(private val canvas: Size, tracks: List<Track>) : VideoCompositorSettings {
+class LayerBlendCompositor(
+    private val canvas: Size,
+    tracks: List<Track>,
+    /** When the main track is split into A/B rolls for transitions, the two last layers are B then A. */
+    private val transitions: List<TransitionWindow> = emptyList(),
+) : VideoCompositorSettings {
     init {
         require(canvas.width > 0 && canvas.height > 0 && tracks.isNotEmpty())
     }
@@ -34,7 +39,7 @@ class LayerBlendCompositor(private val canvas: Size, tracks: List<Track>) : Vide
         track.clips.filter { !track.hidden && it.kind != ClipKind.AUDIO && it.media?.hasVideo == true }
             .sortedBy { it.startUs }
     }
-    private val shaderNeeded = if (layers.size == 1) {
+    private val shaderNeeded = transitions.isNotEmpty() || if (layers.size == 1) {
         // SingleInputVideoGraph bypasses VideoCompositorSettings. Its input is already one tile.
         layers.single().any { clip ->
             val t = clip.transform
@@ -86,6 +91,15 @@ class LayerBlendCompositor(private val canvas: Size, tracks: List<Track>) : Vide
                 }
 
                 override fun setFrame(program: GlProgram, presentationTimeUs: Long) {
+                    if (transitions.isNotEmpty()) {
+                        val window = transitions.firstOrNull { presentationTimeUs >= it.startUs && presentationTimeUs < it.endUs }
+                        program.setFloatsUniform("uTransition", if (window == null) floatArrayOf(0f, 0f, 0f, 0f) else floatArrayOf(
+                            1f,
+                            ((presentationTimeUs - window.startUs).toFloat() / (window.endUs - window.startUs)).coerceIn(0f, 1f),
+                            TransitionShaders.index(window.type).toFloat(),
+                            if (window.fromA) 0f else 1f,
+                        ))
+                    }
                     for (i in layers.indices) {
                         val clip = clipAt(i, presentationTimeUs)
                         val settings = clip?.let { animatedOverlaySettings(it, presentationTimeUs) } ?: transparent
@@ -110,19 +124,44 @@ class LayerBlendCompositor(private val canvas: Size, tracks: List<Track>) : Vide
         appendLine("uniform vec2 uSize;")
         for (i in layers.indices) appendLine("uniform vec4 uPose$i, uLayer$i;")
         appendLine(BLEND)
+        if (transitions.isNotEmpty()) appendLine("uniform vec4 uTransition;")
         appendLine("""
-            vec4 sampleLayer(vec2 tile, vec4 pose, vec4 layer) {
-                vec2 p = (vUv - 0.5 - 0.5 * pose.xy) * uSize;
+            vec4 sampleLayerAt(vec2 tile, vec4 pose, vec4 layer, vec2 at) {
+                if (any(lessThan(at, vec2(0.0))) || any(greaterThan(at, vec2(1.0)))) return vec4(0.0);
+                vec2 p = (at - 0.5 - 0.5 * pose.xy) * uSize;
                 vec2 uv = vec2(dot(p, pose.zw), dot(p, vec2(-pose.w, pose.z))) * layer.xy / uSize + 0.5;
                 if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return vec4(0.0);
                 vec2 inset = 0.5 / uSize;
                 uv = clamp(uv, inset, 1.0 - inset);
                 return texture2D(uInput, (tile + uv) / vec2($columns.0, $rows.0)) * layer.z;
             }
-            void main() {
-                vec4 result = vec4(0.0);
+            vec4 sampleLayer(vec2 tile, vec4 pose, vec4 layer) { return sampleLayerAt(tile, pose, layer, vUv); }
         """)
-        for (i in layers.indices.reversed()) {
+        val n = layers.size
+        if (transitions.isNotEmpty()) {
+            val (b, a) = n - 2 to n - 1
+            fun tile(i: Int) = "vec2(${i % columns}.0, ${i / columns}.0)"
+            appendLine("""
+                vec4 layerA(vec2 at) { return uLayer$a.z > 0.0 ? sampleLayerAt(${tile(a)}, uPose$a, uLayer$a, at) : vec4(0.0); }
+                vec4 layerB(vec2 at) { return uLayer$b.z > 0.0 ? sampleLayerAt(${tile(b)}, uPose$b, uLayer$b, at) : vec4(0.0); }
+                vec4 outgoing(vec2 at) { return uTransition.w < 0.5 ? layerA(at) : layerB(at); }
+                vec4 incoming(vec2 at) { return uTransition.w < 0.5 ? layerB(at) : layerA(at); }
+            """)
+            appendLine(TransitionShaders.FUNCTION)
+        }
+        appendLine("void main() {")
+        appendLine("vec4 result = vec4(0.0);")
+        val mainLayers = if (transitions.isNotEmpty()) 2 else 0
+        if (transitions.isNotEmpty()) {
+            appendLine("""
+                if (uTransition.x > 0.5) {
+                    result = transition(vUv, uTransition.y, uTransition.z);
+                } else {
+                    result = over(layerB(vUv), layerA(vUv), 0.0);
+                }
+            """)
+        }
+        for (i in (0 until n - mainLayers).reversed()) {
             val tile = "vec2(${i % columns}.0, ${i / columns}.0)"
             appendLine("if (uLayer$i.z > 0.0) result = over(result, sampleLayer($tile, uPose$i, uLayer$i), uLayer$i.w);")
         }
@@ -158,3 +197,6 @@ private val BLEND = """
                     src.a + (1.0 - src.a) * dst.a);
     }
 """
+
+/** A window where the main track blends two clips. [fromA] is true when the outgoing clip is on roll A. */
+data class TransitionWindow(val startUs: Long, val endUs: Long, val type: String, val fromA: Boolean)

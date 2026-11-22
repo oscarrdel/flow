@@ -1,0 +1,88 @@
+package com.rainyworks.flow.core.engine.compositing
+
+import android.graphics.Bitmap
+import android.graphics.Color
+import android.media.MediaMetadataRetriever
+import android.net.Uri
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import com.rainyworks.flow.core.engine.ExportSettings
+import com.rainyworks.flow.core.engine.Exporter
+import com.rainyworks.flow.core.model.AspectRatio
+import com.rainyworks.flow.core.model.Edits
+import com.rainyworks.flow.core.model.EffectEdits
+import com.rainyworks.flow.core.model.MediaRef
+import com.rainyworks.flow.core.model.MediaType
+import com.rainyworks.flow.core.model.Project
+import com.rainyworks.flow.core.model.ProjectFactory
+import com.rainyworks.flow.core.model.Transition
+import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import org.junit.runner.RunWith
+import java.io.File
+
+@RunWith(AndroidJUnit4::class)
+class TransitionExportTest {
+    private val context = InstrumentationRegistry.getInstrumentation().targetContext
+
+    private fun solid(name: String, color: Int): MediaRef {
+        val file = File(context.cacheDir, "$name.png")
+        Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888).apply { eraseColor(color) }
+            .also { bmp -> file.outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) } }
+        return MediaRef(Uri.fromFile(file).toString(), MediaType.IMAGE, width = 64, height = 64, mimeType = "image/png")
+    }
+
+    private fun project(type: String): Project {
+        val clips = listOf(solid("red", Color.RED), solid("blue", Color.BLUE), solid("green", Color.GREEN))
+            .map { ProjectFactory.clipFor(it, imageDurationUs = 2_000_000L) }
+        var p = ProjectFactory.create("t", 0L).copy(canvas = ProjectFactory.create("t", 0L).canvas.copy(aspectRatio = AspectRatio.R1_1, followFirstClip = false))
+        p = Edits.insertIntoMain(p, clips)
+        p = EffectEdits.setTransition(p, p.mainTrack.clips[1].id, Transition(type, 1_000_000))
+        p = EffectEdits.setTransition(p, p.mainTrack.clips[2].id, Transition(type, 1_000_000))
+        return p
+    }
+
+    private fun render(project: Project): File {
+        val out = File(context.cacheDir, "transition-${System.nanoTime()}.mp4")
+        runBlocking { Exporter(context).render(project, ExportSettings(heightPx = 128, frameRate = 30), out) { _, _ -> } }
+        return out
+    }
+
+    private fun centerColor(file: File, timeUs: Long): Int {
+        val retriever = MediaMetadataRetriever()
+        try {
+            retriever.setDataSource(file.absolutePath)
+            val frame = retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST)!!
+            return frame.getPixel(frame.width / 2, frame.height / 2)
+        } finally {
+            retriever.release()
+        }
+    }
+
+    @Test
+    fun dissolveBlendsNeighborsAndRollsAlternate() {
+        val project = project("dissolve")
+        // red [0,2), blue [1,3), green [2,4): windows [1,2) and [2,3).
+        assertTrue(project.durationUs == 4_000_000L)
+        val video = render(project)
+        val start = centerColor(video, 300_000)
+        val firstMid = centerColor(video, 1_500_000)
+        val secondMid = centerColor(video, 2_500_000)
+        val end = centerColor(video, 3_700_000)
+        assertTrue("start ${Integer.toHexString(start)}", Color.red(start) > 200 && Color.blue(start) < 60)
+        assertTrue("first mid ${Integer.toHexString(firstMid)}", Color.red(firstMid) in 70..190 && Color.blue(firstMid) in 70..190)
+        assertTrue("second mid ${Integer.toHexString(secondMid)}", Color.blue(secondMid) in 70..190 && Color.green(secondMid) in 70..190)
+        assertTrue("end ${Integer.toHexString(end)}", Color.green(end) > 200 && Color.red(end) < 60)
+    }
+
+    @Test
+    fun everyTransitionTypeRenders() {
+        for (type in listOf("fade.black", "fade.white", "slide.left", "slide.up", "wipe.right", "zoom", "spin", "glitch", "flash")) {
+            val video = render(project(type))
+            assertTrue(type, video.length() > 0)
+            val end = centerColor(video, 3_700_000)
+            assertTrue("$type end ${Integer.toHexString(end)}", Color.green(end) > 200)
+        }
+    }
+}

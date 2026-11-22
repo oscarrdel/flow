@@ -22,6 +22,7 @@ import androidx.media3.transformer.Effects
 import com.rainyworks.flow.core.engine.audiofx.AudioFx
 import com.rainyworks.flow.core.engine.color.ColorEffects
 import com.rainyworks.flow.core.engine.compositing.LayerBlendCompositor
+import com.rainyworks.flow.core.engine.compositing.MainRolls
 import com.rainyworks.flow.core.engine.effects.VisualEffects
 import com.rainyworks.flow.core.engine.compositing.addCanvasGap
 import com.rainyworks.flow.core.engine.compositing.clipVideoEffects
@@ -58,16 +59,19 @@ object CompositionFactory {
         val overlays = project.tracks.filter {
             it.kind == TrackKind.OVERLAY && !it.hidden && it.clips.any { clip -> clip.hasPicture }
         }.asReversed()
+        // Transitions overlap neighboring clips, so the main track plays as two alternating rolls.
+        val rolls = MainRolls.split(project.mainTrack)
+        val mainLayers = if (rolls == null) listOf(project.mainTrack) else listOf(rolls.b, rolls.a)
         // Media3 dibuja la primera secuencia de video encima de las siguientes.
-        val hasVideoLayers = overlays.isNotEmpty()
+        val hasVideoLayers = overlays.isNotEmpty() || rolls != null
         val sequences = overlays.map { sequence(it, durationUs, canvas, settings.frameRate, hasVideoLayers) }.toMutableList()
-        sequences += sequence(project.mainTrack, durationUs, canvas, settings.frameRate, hasVideoLayers)
+        mainLayers.forEach { sequences += sequence(it, durationUs, canvas, settings.frameRate, hasVideoLayers) }
         project.tracks.filter {
             (it.kind == TrackKind.AUDIO || (it.kind == TrackKind.OVERLAY && it !in overlays)) &&
                 !it.hidden && it.clips.any(it::isAudible)
         }.forEach { sequences += sequence(it, durationUs, canvas, settings.frameRate, hasVideoLayers, audioOnly = true) }
         // Overlays first (foreground), main track last, matching the video sequence order.
-        val layers = LayerBlendCompositor(canvas, overlays + project.mainTrack)
+        val layers = LayerBlendCompositor(canvas, overlays + mainLayers, rolls?.windows.orEmpty())
 
         val textOverlays = titles?.let { TextOverlays.forProject(project, it, canvas.width, canvas.height) }.orEmpty()
         val finalEffects = buildList<Effect> {
