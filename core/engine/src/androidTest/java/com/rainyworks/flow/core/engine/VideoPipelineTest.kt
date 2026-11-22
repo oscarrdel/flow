@@ -1,7 +1,9 @@
 package com.rainyworks.flow.core.engine
 
+import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Rect
+import android.media.Image
 import android.media.ImageReader
 import android.media.MediaMetadataRetriever
 import android.net.Uri
@@ -14,12 +16,14 @@ import android.view.SurfaceView
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.test.platform.app.InstrumentationRegistry
+import com.rainyworks.flow.core.model.ColorGrade
 import com.rainyworks.flow.core.model.Edits
 import com.rainyworks.flow.core.model.Project
 import com.rainyworks.flow.core.model.ProjectFactory
 import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.last
 import kotlinx.coroutines.runBlocking
@@ -61,10 +65,18 @@ class VideoPipelineTest {
     @Test
     fun exportHorizontal() = checkExport("horizontal_test.mp4", 1080)
 
-    private fun checkExport(name: String, shortSide: Int) = runBlocking {
+    private fun monochrome(project: Project) = Edits.updateClip(project, project.mainTrack.clips.single().id) {
+        it.copy(color = ColorGrade(filterId = "mono.classic"))
+    }
+
+    @Test
+    fun exportClassicMonochrome() = checkExport("baseline_test.mp4", 720, filtered = true)
+
+    private fun checkExport(name: String, shortSide: Int, filtered: Boolean = false) = runBlocking {
         withVideo(name) { project ->
+            val input = if (filtered) monochrome(project) else project
             val result = withTimeout(120_000) {
-                Exporter(context).export(project, ExportSettings(heightPx = shortSide), "Flow-prueba").last()
+                Exporter(context).export(input, ExportSettings(heightPx = shortSide), "Flow-prueba").last()
             }
             assertTrue(result.toString(), result is ExportState.Success)
             result as ExportState.Success
@@ -75,9 +87,18 @@ class VideoPipelineTest {
                     assertTrue("Fotogramas exportados: $frames", frames > 1)
                     val durationMs = reader.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)!!.toLong()
                     assertEquals(project.durationUs / 1_000.0, durationMs.toDouble(), 100.0)
-                    val frame = reader.getFrameAtTime(500_000)
-                    assertNotNull(frame)
-                    frame?.recycle()
+                    for (timeUs in if (filtered) listOf(500_000L, 1_500_000L) else listOf(500_000L)) {
+                        val frame = reader.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST)
+                        assertNotNull(frame)
+                        try {
+                            if (filtered) {
+                                checkNotNull(frame)
+                                assertEquals(FrameColor.GRAY, classify(frame.width, frame.height, frame::getPixel))
+                            }
+                        } finally {
+                            frame?.recycle()
+                        }
+                    }
                     Log.i("FlowVideoTest", "$name exportado: ${result.sizeBytes} bytes, $frames fotogramas, $durationMs ms")
                 }
             } finally {
@@ -100,13 +121,55 @@ class VideoPipelineTest {
         withVideo("baseline_test.mp4") { checkPreview(it, failFirst = true) }
     }
 
-    private suspend fun checkPreview(project: Project, failFirst: Boolean = false) = withContext(Dispatchers.Main) {
+    @Test
+    fun applyClassicMonochromeWhilePaused() = runBlocking {
+        withVideo("baseline_test.mp4") { checkPreview(it, applyFilter = true) }
+    }
+
+    private enum class FrameColor { BLANK, COLOR, GRAY }
+
+    private fun classify(image: Image): FrameColor {
+        val plane = image.planes[0]
+        val buffer = plane.buffer
+        return classify(image.width, image.height) { x, y ->
+            val i = y * plane.rowStride + x * plane.pixelStride
+            Color.rgb(
+                buffer.get(i).toInt() and 255,
+                buffer.get(i + 1).toInt() and 255,
+                buffer.get(i + 2).toInt() and 255,
+            )
+        }
+    }
+
+    private fun classify(width: Int, height: Int, pixel: (Int, Int) -> Int): FrameColor {
+        var darkest = 255
+        var lightest = 0
+        for (y in 1..15) for (x in 1..15) {
+            val rgb = pixel(x * width / 16, y * height / 16)
+            val lo = minOf(Color.red(rgb), Color.green(rgb), Color.blue(rgb))
+            val hi = maxOf(Color.red(rgb), Color.green(rgb), Color.blue(rgb))
+            if (hi - lo > 6) return FrameColor.COLOR
+            darkest = minOf(darkest, lo)
+            lightest = maxOf(lightest, hi)
+        }
+        return if (lightest - darkest > 32) FrameColor.GRAY else FrameColor.BLANK
+    }
+
+    private suspend fun checkPreview(project: Project, failFirst: Boolean = false, applyFilter: Boolean = false) = withContext(Dispatchers.Main) {
         val frames = AtomicInteger()
         val reader = ImageReader.newInstance(360, 640, PixelFormat.RGBA_8888, 3)
+        val frameColor = MutableStateFlow(FrameColor.BLANK)
+        var grayFrames = 0
         val preview = PreviewController(context)
         try {
             reader.setOnImageAvailableListener({
-                it.acquireLatestImage()?.use { frames.incrementAndGet() }
+                it.acquireLatestImage()?.use { image ->
+                    frames.incrementAndGet()
+                    if (applyFilter) {
+                        frameColor.value = classify(image)
+                        if (frameColor.value == FrameColor.GRAY) grayFrames++
+                    }
+                }
             }, Handler(Looper.getMainLooper()))
             val holder = object : SurfaceHolder by SurfaceView(context).holder {
                 override fun getSurface() = reader.surface
@@ -115,9 +178,14 @@ class VideoPipelineTest {
             preview.player.setVideoSurfaceHolder(holder)
             if (failFirst) checkPersistentError(preview, project)
             preview.setProject(project)
+            if (applyFilter) {
+                withTimeout(20_000) { frameColor.first { it == FrameColor.COLOR } }
+                preview.setProject(monochrome(project))
+                withTimeout(20_000) { frameColor.first { it == FrameColor.GRAY } }
+            }
             preview.play()
             val position = withTimeout(20_000) {
-                preview.positionUs.first { it >= 750_000 && frames.get() >= 2 }
+                preview.positionUs.first { it >= 750_000 && frames.get() >= 2 && (!applyFilter || grayFrames >= 2) }
             }
             assertNull(preview.error.value)
             Log.i("FlowVideoTest", "Vista previa: $position µs, ${frames.get()} fotogramas")

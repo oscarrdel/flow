@@ -117,11 +117,15 @@ class PreviewController @MainThread constructor(context: Context) {
     private fun prepareProject(project: Project) {
         val positionMs = preview.currentPosition.coerceIn(0L, project.durationUs / 1_000)
         val resume = preview.playWhenReady && !project.isEmpty
-        if (playerFailed) {
-            // En 1.11.1 la excepción queda asociada a la instancia incluso después de prepare().
+        if (current != null) {
+            // setComposition retains the previous video graph in Media3 1.11.1. After a
+            // paused edit its replacement renderer can wait indefinitely for the first frame.
+            val volume = preview.volume
+            main.removeCallbacks(tick)
+            playing.value = false
             preview.removeListener(listener)
             preview.release()
-            preview = createPlayer()
+            preview = createPlayer().also { it.volume = volume }
             output.attach(preview)
             preview.addListener(listener)
             playerFailed = false
