@@ -40,6 +40,7 @@ import androidx.compose.material.icons.automirrored.rounded.FormatAlignLeft
 import androidx.compose.material.icons.automirrored.rounded.FormatAlignRight
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Animation
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.BorderColor
 import androidx.compose.material.icons.rounded.BlurOn
 import androidx.compose.material.icons.rounded.CheckBoxOutlineBlank
@@ -70,12 +71,21 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign as ComposeTextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
+import androidx.compose.ui.unit.sp
 import com.rainyworks.flow.core.designsystem.components.FlowBottomPanel
 import com.rainyworks.flow.core.designsystem.theme.FlowColors
 import com.rainyworks.flow.core.designsystem.theme.FlowTheme
@@ -125,6 +135,7 @@ private val TextColorPalette = listOf(
 )
 
 private enum class TextEditorTab(val label: String, val icon: ImageVector) {
+    Presets("Estilos", Icons.Rounded.AutoAwesome),
     Font("Fuente", Icons.Rounded.FontDownload),
     Style("Estilo", Icons.Rounded.FormatSize),
     Color("Color", Icons.Rounded.Palette),
@@ -321,7 +332,21 @@ internal fun TextSheetPanel(
         onDispose { flushPendingText() }
     }
 
-    var activeTab by remember { mutableStateOf(TextEditorTab.Font) }
+    var activeTab by remember(clipId, content.isSubtitle) {
+        mutableStateOf(if (content.isSubtitle) TextEditorTab.Font else TextEditorTab.Presets)
+    }
+    val visibleTabs = remember(content.isSubtitle) {
+        if (content.isSubtitle) {
+            TextEditorTab.entries.filterNot { it == TextEditorTab.Presets }
+        } else {
+            TextEditorTab.entries
+        }
+    }
+    val effectiveTab = if (content.isSubtitle && activeTab == TextEditorTab.Presets) {
+        TextEditorTab.Font
+    } else {
+        activeTab
+    }
 
     FlowBottomPanel(
         title = if (content.isSubtitle) "Editar subtítulo" else "Texto",
@@ -400,18 +425,26 @@ internal fun TextSheetPanel(
                     .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(spacing.sm),
             ) {
-                TextEditorTab.entries.forEach { tab ->
+                visibleTabs.forEach { tab ->
                     SheetActionChip(
                         label = tab.label,
                         icon = tab.icon,
                         enabled = true,
-                        selected = tab == activeTab,
+                        selected = tab == effectiveTab,
                         onClick = { activeTab = tab },
                     )
                 }
             }
 
-            when (activeTab) {
+            when (effectiveTab) {
+                TextEditorTab.Presets -> TextStylePresetsTab(
+                    content = content,
+                    onSelectPreset = { preset ->
+                        val updated = preset.apply(latestContent.copy(text = latestLocalText))
+                        textDirty = false
+                        emitContent(updated, final = true)
+                    },
+                )
                 TextEditorTab.Font -> TextFontTab(
                     selectedFontId = content.font,
                     customFonts = state.customFonts,
@@ -562,6 +595,143 @@ private fun TextTemplateRow(
                     maxLines = 1,
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun TextStylePresetsTab(
+    content: TextContent,
+    onSelectPreset: (TextStylePreset) -> Unit,
+) {
+    val spacing = FlowTheme.spacing
+    LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(spacing.sm),
+        contentPadding = PaddingValues(vertical = 2.dp),
+    ) {
+        items(TextStylePresets, key = { it.id }) { preset ->
+            val isSelected = content == preset.apply(content)
+            TextStylePresetCard(
+                preset = preset,
+                selected = isSelected,
+                onClick = { onSelectPreset(preset) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun TextStylePresetCard(
+    preset: TextStylePreset,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val sample = remember(preset.id) { preset.apply(TextContent(text = "Aa")) }
+    val cardShape = RoundedCornerShape(10.dp)
+    val previewShape = RoundedCornerShape(6.dp)
+    val baseStyle = TextStyle(
+        fontFamily = FlowFonts.family(sample.font),
+        fontSize = 20.sp,
+        fontWeight = if (sample.bold) FontWeight.Bold else FontWeight.Normal,
+        fontStyle = if (sample.italic) FontStyle.Italic else FontStyle.Normal,
+        letterSpacing = (sample.letterSpacing * 0.5f).coerceIn(-0.04f, 0.14f).em,
+    )
+    val previewShadow = sample.shadow?.let { sh ->
+        Shadow(
+            color = Color(sh.argb),
+            offset = Offset(sh.offsetX * 22f, sh.offsetY * 22f),
+            blurRadius = (sh.blur * 26f).coerceAtLeast(0.5f),
+        )
+    }
+
+    Column(
+        modifier = Modifier
+            .width(92.dp)
+            .clip(cardShape)
+            .background(if (selected) FlowColors.AccentDim.copy(alpha = 0.45f) else FlowColors.Slate)
+            .border(
+                width = if (selected) 2.dp else 1.dp,
+                color = if (selected) FlowColors.Accent else FlowColors.Outline,
+                shape = cardShape,
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 6.dp, vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(42.dp)
+                .clip(previewShape)
+                .background(Color(0xFF14161A)),
+            contentAlignment = Alignment.Center,
+        ) {
+            val bg = sample.background
+            val badgeModifier = if (bg != null) {
+                Modifier
+                    .clip(RoundedCornerShape((bg.cornerRadius * 14f).dp))
+                    .background(Color(bg.argb))
+                    .padding(horizontal = 8.dp, vertical = 2.dp)
+            } else {
+                Modifier
+            }
+            Box(
+                modifier = badgeModifier,
+                contentAlignment = Alignment.Center,
+            ) {
+                val stroke = sample.stroke?.takeIf { it.width > 0f }
+                if (stroke != null) {
+                    Text(
+                        text = "Aa",
+                        style = baseStyle.copy(
+                            color = Color(stroke.argb),
+                            shadow = previewShadow,
+                            drawStyle = Stroke(
+                                width = (stroke.width * 24f).coerceIn(1.5f, 6f),
+                                join = StrokeJoin.Round,
+                            ),
+                        ),
+                        maxLines = 1,
+                    )
+                }
+                val fillShadow = if (stroke == null) previewShadow else null
+                val gradientEnd = sample.fill.gradientEndArgb
+                val fillStyle = if (gradientEnd != null) {
+                    baseStyle.copy(
+                        brush = Brush.verticalGradient(
+                            listOf(Color(sample.fill.argb), Color(gradientEnd)),
+                        ),
+                        shadow = fillShadow,
+                    )
+                } else {
+                    baseStyle.copy(
+                        color = Color(sample.fill.argb),
+                        shadow = fillShadow,
+                    )
+                }
+                Text(
+                    text = "Aa",
+                    style = fillStyle,
+                    maxLines = 1,
+                )
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(26.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = preset.name,
+                style = FlowTypography.labelSmall,
+                color = if (selected) FlowColors.Accent else FlowColors.TextPrimary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = ComposeTextAlign.Center,
+            )
         }
     }
 }
