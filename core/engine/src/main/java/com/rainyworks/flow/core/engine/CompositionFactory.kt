@@ -22,6 +22,7 @@ import androidx.media3.transformer.Effects
 import com.rainyworks.flow.core.engine.audiofx.AudioFx
 import com.rainyworks.flow.core.engine.color.ColorEffects
 import com.rainyworks.flow.core.engine.compositing.LayerBlendCompositor
+import com.rainyworks.flow.core.engine.effects.VisualEffects
 import com.rainyworks.flow.core.engine.compositing.addCanvasGap
 import com.rainyworks.flow.core.engine.compositing.clipVideoEffects
 import com.rainyworks.flow.core.engine.color.LutCache
@@ -72,6 +73,7 @@ object CompositionFactory {
         val finalEffects = buildList<Effect> {
             layers.effect?.let(::add)
             add(fit(canvas))
+            addAll(VisualEffects.forLayers(project))
             if (textOverlays.isNotEmpty()) add(OverlayEffect(textOverlays))
         }
         val builder = Composition.Builder(sequences)
@@ -157,7 +159,12 @@ object CompositionFactory {
                 Effects(
                     processors,
                     if (visible) {
-                        clipVideoEffects(clip, ColorEffects.forGrade(clip.color, LutCache::load), presentation, hasVideoLayers)
+                        clipVideoEffects(
+                            clip,
+                            ColorEffects.forGrade(clip.color, LutCache::load) + VisualEffects.forClip(clip),
+                            presentation,
+                            hasVideoLayers,
+                        )
                     } else {
                         emptyList()
                     },
