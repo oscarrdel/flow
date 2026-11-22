@@ -172,6 +172,16 @@ fun EditorContent(
             preview = preview,
             modifier = paneModifier,
             overlay = {
+                val liveClip = state.liveClipId?.let { id -> state.project?.findClip(id)?.second }
+                if (liveClip != null) {
+                    LiveClipProxy(
+                        clip = liveClip,
+                        playheadUs = state.playheadUs,
+                        mediaSource = mediaSource,
+                        canvasHeightPx = LIVE_PROXY_HEIGHT_PX,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
                 TextOverlayLayer(
                     project = state.project,
                     playheadUs = playheadProvider,
@@ -753,6 +763,8 @@ private fun FullscreenPreview(
 }
 
 // region Preview Fakes
+
+private const val LIVE_PROXY_HEIGHT_PX = 720
 
 private class FakePreviewTimelineMediaSource : TimelineMediaSource {
     private val bitmapCache = HashMap<Int, ImageBitmap>()

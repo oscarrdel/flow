@@ -50,12 +50,12 @@ object CompositionFactory {
      * [titles] draws text clips over the final frame. The editor preview leaves it null
      * because it draws titles itself for instant feedback while typing.
      */
-    fun build(project: Project, settings: ExportSettings, titles: TextRenderer? = null): Composition {
+    fun build(project: Project, settings: ExportSettings, titles: TextRenderer? = null, live: LiveEdit? = null): Composition {
         require(project.durationUs > 0) { "El proyecto está vacío." }
-        return compose(project, settings, titles)
+        return compose(project, settings, titles, live)
     }
 
-    private fun compose(project: Project, settings: ExportSettings, titles: TextRenderer?): Composition {
+    private fun compose(project: Project, settings: ExportSettings, titles: TextRenderer?, live: LiveEdit? = null): Composition {
         val canvas = Size(settings.width(project), settings.height(project))
         val durationUs = project.durationUs.coerceAtLeast(1_000L)
         val overlays = project.tracks.filter {
@@ -73,7 +73,7 @@ object CompositionFactory {
                 !it.hidden && it.clips.any(it::isAudible)
         }.forEach { sequences += sequence(it, durationUs, canvas, settings.frameRate, hasVideoLayers, audioOnly = true) }
         // Overlays first (foreground), main track last, matching the video sequence order.
-        val layers = LayerBlendCompositor(canvas, overlays + mainLayers, rolls?.windows.orEmpty())
+        val layers = LayerBlendCompositor(canvas, overlays + mainLayers, rolls?.windows.orEmpty(), live)
 
         val textOverlays = titles?.let { TextOverlays.forProject(project, it, canvas.width, canvas.height) }.orEmpty()
         val finalEffects = buildList<Effect> {

@@ -177,6 +177,32 @@ class PreviewController @MainThread constructor(context: Context) {
         prepareProject(project)
     }
 
+    private val live = LiveEdit()
+    /** Rebuild even if the project did not change, to show a clip hidden for a gesture again. */
+    private var forceRebuild = false
+
+    /**
+     * Leaves [clipId] out of the preview while the editor draws it under the user's finger.
+     * The player is rebuilt once now, and once more after [endLiveEdit].
+     */
+    fun beginLiveEdit(clipId: String) = onMain {
+        if (live.hiddenClipId == clipId) return@onMain
+        live.hide(clipId)
+        val project = pending ?: current ?: return@onMain
+        pending = null
+        main.removeCallbacks(rebuild)
+        prepareProject(project)
+    }
+
+    /** Shows the dragged clip in the preview again; the next rebuild includes it. */
+    fun endLiveEdit() = onMain {
+        if (!live.isActive) return@onMain
+        live.clear()
+        forceRebuild = true
+        if (pending == null) pending = current
+        if (!main.hasCallbacks(rebuild)) main.postDelayed(rebuild, 50)
+    }
+
     fun setProject(project: Project) = onMain {
         pending = project
         if (current == null) applyPending()
@@ -187,7 +213,8 @@ class PreviewController @MainThread constructor(context: Context) {
         main.removeCallbacks(rebuild)
         val project = pending ?: return
         pending = null
-        if (project == current) return
+        if (project == current && !forceRebuild) return
+        forceRebuild = false
         retried = false
         prepareProject(project)
     }
@@ -220,7 +247,7 @@ class PreviewController @MainThread constructor(context: Context) {
             return
         }
         try {
-            preview.setComposition(CompositionFactory.build(project, ExportSettings(heightPx = previewShortSidePx)), positionMs)
+            preview.setComposition(CompositionFactory.build(project, ExportSettings(heightPx = previewShortSidePx), live = live), positionMs)
             preview.prepare()
             preview.playWhenReady = resume
             if (resume) watchForStalls()

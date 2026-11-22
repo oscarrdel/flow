@@ -12,6 +12,7 @@ import androidx.media3.effect.GlShaderProgram
 import androidx.media3.effect.StaticOverlaySettings
 import com.rainyworks.flow.core.model.AnimatedProperty
 import com.rainyworks.flow.core.model.BlendMode
+import com.rainyworks.flow.core.engine.LiveEdit
 import com.rainyworks.flow.core.model.Clip
 import com.rainyworks.flow.core.model.ClipAnimations
 import com.rainyworks.flow.core.model.ClipKind
@@ -31,6 +32,8 @@ class LayerBlendCompositor(
     tracks: List<Track>,
     /** When the main track is split into A/B rolls for transitions, the two last layers are B then A. */
     private val transitions: List<TransitionWindow> = emptyList(),
+    /** Preview only: the clip being dragged, which the editor draws itself meanwhile. */
+    private val live: LiveEdit? = null,
 ) : VideoCompositorSettings {
     init {
         require(canvas.width > 0 && canvas.height > 0 && tracks.isNotEmpty())
@@ -40,7 +43,8 @@ class LayerBlendCompositor(
         track.clips.filter { !track.hidden && it.kind != ClipKind.AUDIO && it.media?.hasVideo == true }
             .sortedBy { it.startUs }
     }
-    private val shaderNeeded = transitions.isNotEmpty() || if (layers.size == 1) {
+    // Several layers can hide a clip through getOverlaySettings; a single layer needs the shader.
+    private val shaderNeeded = (live != null && layers.size == 1) || transitions.isNotEmpty() || if (layers.size == 1) {
         // SingleInputVideoGraph bypasses VideoCompositorSettings. Its input is already one tile.
         layers.single().any { clip ->
             val t = clip.transform
@@ -78,7 +82,7 @@ class LayerBlendCompositor(
     private fun clipAt(input: Int, timeUs: Long): Clip? {
         val clips = layers.getOrNull(input) ?: return null
         val index = clips.binarySearchBy(timeUs) { it.startUs }
-        return clips.getOrNull(if (index >= 0) index else -index - 2)?.takeIf { it.contains(timeUs) }
+        return clips.getOrNull(if (index >= 0) index else -index - 2)?.takeIf { it.contains(timeUs) && live?.hides(it) != true }
     }
 
     override fun getOutputSize(inputSizes: List<Size>) = if (shaderNeeded) atlasSize else canvas

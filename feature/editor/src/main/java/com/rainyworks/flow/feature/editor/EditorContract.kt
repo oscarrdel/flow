@@ -35,6 +35,8 @@ data class EditorUiState(
     val pickingChromaFor: String? = null,
     /** A long-running job such as generating a reversed clip; shows a progress card. */
     val task: BackgroundTask? = null,
+    /** Clip being dragged, drawn by the editor itself until the gesture ends. */
+    val liveClipId: String? = null,
     /** Main-track clip whose incoming transition is being edited. */
     val transitionClipId: String? = null,
     /** Fonts the user imported, as (display name, font id/URI) pairs. */

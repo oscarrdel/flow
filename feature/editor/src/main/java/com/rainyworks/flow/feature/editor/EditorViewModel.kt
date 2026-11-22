@@ -174,10 +174,10 @@ class EditorViewModel(
             is EditorAction.SetVolume -> drag("volume-${action.clipId}", action.final) { project ->
                 Edits.updateClip(project, action.clipId) { it.copy(volume = action.volume.coerceIn(0f, 2f)) }
             }
-            is EditorAction.SetTransform -> drag("transform-${action.clipId}", action.final) {
+            is EditorAction.SetTransform -> drag("transform-${action.clipId}", action.final, liveClipId = action.clipId) {
                 MediaEdits.setTransformAt(it, action.clipId, action.transform, _state.value.playheadUs)
             }
-            is EditorAction.SetOpacity -> drag("opacity-${action.clipId}", action.final) {
+            is EditorAction.SetOpacity -> drag("opacity-${action.clipId}", action.final, liveClipId = action.clipId) {
                 MediaEdits.setOpacityAt(it, action.clipId, action.opacity, _state.value.playheadUs)
             }
             is EditorAction.SetAspectRatio -> current?.let { apply(Edits.setAspectRatio(it, action.ratio)) }
@@ -521,6 +521,7 @@ class EditorViewModel(
     private fun resetGesture() {
         gestureBase = null
         gestureKey = null
+        endLiveEdit()
     }
 
     private fun back() {
@@ -680,7 +681,11 @@ class EditorViewModel(
         preview.seekTo(timeUs)
     }
 
-    private inline fun drag(key: String, final: Boolean, edit: (Project) -> Project) {
+    /**
+     * Applies one step of a drag. With [liveClipId], the editor draws that clip itself during
+     * the drag (so it follows the finger at once) and the player is rebuilt when it ends.
+     */
+    private inline fun drag(key: String, final: Boolean, liveClipId: String? = null, edit: (Project) -> Project) {
         var h = history ?: return
         if (gestureKey != key) {
             h = h.commitGroup()
@@ -694,17 +699,35 @@ class EditorViewModel(
             gestureBase = null
             gestureKey = null
         }
-        setHistory(next)
+        val live = liveClipId?.takeIf { !final && next.present.findClip(it) != null }
+        if (live != null) {
+            if (_state.value.liveClipId != live) {
+                preview.beginLiveEdit(live)
+                _state.update { it.copy(liveClipId = live) }
+            }
+            setHistory(next, rebuildPreview = false)
+        } else {
+            endLiveEdit()
+            setHistory(next)
+        }
+    }
+
+    /** The editor stops drawing the dragged clip itself and the preview shows it again. */
+    private fun endLiveEdit() {
+        if (_state.value.liveClipId == null) return
+        preview.endLiveEdit()
+        _state.update { it.copy(liveClipId = null) }
     }
 
     private fun apply(project: Project) {
         val h = history ?: return
         gestureBase = null
         gestureKey = null
+        endLiveEdit()
         setHistory(h.commitGroup().push(project))
     }
 
-    private fun setHistory(next: EditHistory) {
+    private fun setHistory(next: EditHistory, rebuildPreview: Boolean = true) {
         history = next
         val project = next.present
         _state.update { state ->
@@ -716,7 +739,7 @@ class EditorViewModel(
                 playheadUs = state.playheadUs.coerceIn(0L, project.durationUs),
             )
         }
-        preview.setProject(project)
+        if (rebuildPreview) preview.setProject(project)
         autoSaver.submit(project)
         refreshCover(project)
     }
