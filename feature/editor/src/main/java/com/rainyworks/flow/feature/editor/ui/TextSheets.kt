@@ -1,5 +1,17 @@
 package com.rainyworks.flow.feature.editor.ui
 
+import androidx.compose.runtime.saveable.rememberSaveable
+
+import androidx.compose.material3.IconButton
+
+import androidx.compose.material3.DropdownMenuItem
+
+import androidx.compose.material3.DropdownMenu
+
+import androidx.compose.material.icons.automirrored.rounded.List
+
+import androidx.compose.material.icons.rounded.MoreVert
+
 import androidx.compose.material.icons.rounded.DeleteOutline
 
 import androidx.compose.foundation.background
@@ -91,7 +103,7 @@ import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 
 private val TEXT_PANEL_MAX_HEIGHT = 310.dp
-private val SUBTITLES_LIST_MAX_HEIGHT = 235.dp
+private val SUBTITLES_LIST_MAX_HEIGHT = 150.dp
 private const val DEFAULT_SUBTITLE_TEXT = "Subtítulo"
 private const val DEFAULT_SUBTITLE_DURATION_US = 2_000_000L
 
@@ -1018,84 +1030,125 @@ internal fun SubtitlesSheetPanel(
     val blocks = remember(state.project) { findSubtitleBlocks(state.project) }
     val fps = state.fps.coerceAtLeast(1)
     val frameUs = remember(fps) { Timecode.frameDurationUs(fps).coerceAtLeast(1L) }
+    var showList by rememberSaveable { mutableStateOf(false) }
+    var menuOpen by remember { mutableStateOf(false) }
+    val current = blocks.firstOrNull { state.playheadUs in it.cue.startUs until it.cue.endUs }
 
     FlowBottomPanel(
         title = "Subtítulos",
-        subtitle = if (blocks.isEmpty()) "Aún no hay subtítulos" else if (blocks.size == 1) "1 subtítulo" else "${blocks.size} subtítulos",
+        subtitle = when (blocks.size) {
+            0 -> "Aún no hay subtítulos"
+            1 -> "1 subtítulo"
+            else -> "${blocks.size} subtítulos"
+        },
         onDismiss = { onAction(EditorAction.DismissSheet) },
         modifier = modifier,
+        headerTrailing = {
+            Box {
+                IconButton(onClick = { menuOpen = true }) {
+                    Icon(Icons.Rounded.MoreVert, contentDescription = "Más opciones", tint = FlowColors.TextSecondary)
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Importar archivo .srt") },
+                        leadingIcon = { Icon(Icons.Rounded.FileOpen, contentDescription = null) },
+                        onClick = {
+                            menuOpen = false
+                            onAction(EditorAction.ImportSrt)
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Guardar archivo .srt") },
+                        leadingIcon = { Icon(Icons.Rounded.FileDownload, contentDescription = null) },
+                        enabled = blocks.isNotEmpty(),
+                        onClick = {
+                            menuOpen = false
+                            onAction(EditorAction.ExportSrt)
+                        },
+                    )
+                }
+            }
+        },
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(spacing.sm),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(spacing.sm), verticalAlignment = Alignment.CenterVertically) {
             SheetActionChip(
-                label = "Agregar subtítulo",
+                label = "Agregar",
                 icon = Icons.Rounded.Add,
                 enabled = true,
                 onClick = {
                     val startUs = state.playheadUs.coerceAtLeast(0L)
+                    showList = false
                     onAction(
                         EditorAction.AddSubtitle(
-                            SubtitleCue(
-                                startUs = startUs,
-                                endUs = startUs + DEFAULT_SUBTITLE_DURATION_US,
-                                text = DEFAULT_SUBTITLE_TEXT,
-                            ),
+                            SubtitleCue(startUs = startUs, endUs = startUs + DEFAULT_SUBTITLE_DURATION_US, text = DEFAULT_SUBTITLE_TEXT),
                         ),
                     )
                 },
             )
             SheetActionChip(
-                label = "Importar archivo .srt",
-                icon = Icons.Rounded.FileOpen,
-                enabled = true,
-                onClick = { onAction(EditorAction.ImportSrt) },
-            )
-            SheetActionChip(
-                label = "Guardar archivo .srt",
-                icon = Icons.Rounded.FileDownload,
+                label = if (showList) "Ocultar lista" else "Ver todos (${blocks.size})",
+                icon = Icons.AutoMirrored.Rounded.List,
                 enabled = blocks.isNotEmpty(),
-                onClick = { onAction(EditorAction.ExportSrt) },
+                onClick = { showList = !showList },
             )
         }
 
         Spacer(Modifier.height(spacing.sm))
 
-        if (blocks.isEmpty()) {
-            SheetEmptyMessage("Toca «Agregar subtítulo» para crear uno donde está el cabezal, o importa un archivo .srt.")
-        } else {
-            Text(
-                text = "Para cambiar cuánto dura un subtítulo, arrastra sus bordes en la línea de tiempo.",
-                style = FlowTypography.bodySmall,
-                color = FlowColors.TextSecondary,
-            )
-            Spacer(Modifier.height(spacing.sm))
-            Column(
+        when {
+            showList -> Column(
                 modifier = Modifier
                     .heightIn(max = SUBTITLES_LIST_MAX_HEIGHT)
                     .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(spacing.sm),
             ) {
                 blocks.forEach { block ->
-                    SubtitleBlockCard(
-                        block = block,
-                        playheadUs = state.playheadUs,
-                        fps = fps,
-                        frameUs = frameUs,
-                        onSeekToStart = {
-                            onAction(EditorAction.Seek(block.cue.startUs, final = true))
-                        },
-                        onUpdateCue = { updatedCue ->
-                            onAction(EditorAction.UpdateSubtitle(block.clipId, updatedCue))
-                        },
-                        onDelete = { onAction(EditorAction.RemoveSubtitle(block.clipId)) },
-                    )
+                    val active = state.playheadUs in block.cue.startUs until block.cue.endUs
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable {
+                                showList = false
+                                onAction(EditorAction.Seek(block.cue.startUs, final = true))
+                            }
+                            .padding(horizontal = spacing.sm, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = readableTime(block.cue.startUs),
+                            style = TimecodeStyle,
+                            color = if (active) FlowColors.Accent else FlowColors.TextSecondary,
+                        )
+                        Spacer(Modifier.size(spacing.md))
+                        Text(
+                            text = block.cue.text,
+                            style = FlowTypography.bodyMedium,
+                            color = if (active) FlowColors.Accent else FlowColors.TextPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
+            current != null -> {
+                SubtitleBlockCard(
+                    block = current,
+                    playheadUs = state.playheadUs,
+                    fps = fps,
+                    frameUs = frameUs,
+                    onSeekToStart = { onAction(EditorAction.Seek(current.cue.startUs, final = true)) },
+                    onUpdateCue = { updatedCue -> onAction(EditorAction.UpdateSubtitle(current.clipId, updatedCue)) },
+                    onDelete = { onAction(EditorAction.RemoveSubtitle(current.clipId)) },
+                )
+                Spacer(Modifier.height(spacing.xs))
+                Text(
+                    text = "Arrastra sus bordes en la línea de tiempo para cambiar cuánto dura.",
+                    style = FlowTypography.bodySmall,
+                    color = FlowColors.TextTertiary,
+                )
+            }
+            blocks.isEmpty() -> SheetEmptyMessage("Toca «Agregar» para crear un subtítulo donde está el cabezal.")
+            else -> SheetEmptyMessage("Mueve el cabezal sobre un subtítulo para editar su texto, o toca «Ver todos».")
         }
     }
 }

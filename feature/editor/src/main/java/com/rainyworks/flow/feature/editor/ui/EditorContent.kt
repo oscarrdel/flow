@@ -1,5 +1,7 @@
 package com.rainyworks.flow.feature.editor.ui
 
+import androidx.compose.animation.core.animateFloatAsState
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -300,11 +302,14 @@ fun EditorContent(
                     }
                 }
             } else {
-                // Portrait layout: upper preview area + playback bar, lower timeline + toolbar/sheet
+                // Portrait layout: upper preview area + playback bar, lower timeline + toolbar/sheet.
+                // While a panel is open the preview shrinks so the timeline keeps usable room.
+                val panelOpen = state.activeSheet != null
+                val previewShare by animateFloatAsState(if (panelOpen) 0.30f else 0.45f, label = "previewShare")
                 previewPane(
                     Modifier
                         .fillMaxWidth()
-                        .weight(0.45f),
+                        .weight(previewShare),
                 )
 
                 playbackBar()
@@ -314,7 +319,7 @@ fun EditorContent(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(0.55f),
+                        .weight(1f - previewShare),
                 ) {
                     controls()
                 }
