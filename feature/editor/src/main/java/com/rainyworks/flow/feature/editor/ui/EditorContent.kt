@@ -16,6 +16,10 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.ui.unit.Dp
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -228,7 +232,8 @@ fun EditorContent(
         )
     }
 
-    val controls: @Composable ColumnScope.() -> Unit = {
+    /** [sheetMaxHeight] caps an open panel (landscape), which then scrolls, so the timeline stays visible. */
+    val controls: @Composable ColumnScope.(sheetMaxHeight: Dp?) -> Unit = { sheetMaxHeight ->
         EditorTimeline(
             project = state.project,
             playheadUs = playheadProvider,
@@ -250,6 +255,9 @@ fun EditorContent(
                 state = state,
                 mediaSource = mediaSource,
                 onAction = dispatch,
+                modifier = if (sheetMaxHeight == null) Modifier else Modifier
+                    .heightIn(max = sheetMaxHeight)
+                    .verticalScroll(rememberScrollState()),
             )
         } else {
             EditorBottomToolbar(
@@ -268,6 +276,7 @@ fun EditorContent(
             .background(FlowColors.Carbon),
     ) {
         val isLandscape = maxWidth > maxHeight
+        val landscapeSheetMax = maxHeight * LANDSCAPE_SHEET_SHARE
 
         Column(modifier = Modifier.fillMaxSize()) {
             EditorTopBar(
@@ -308,7 +317,7 @@ fun EditorContent(
                             .weight(0.56f)
                             .fillMaxHeight(),
                     ) {
-                        controls()
+                        controls(landscapeSheetMax)
                     }
                 }
             } else {
@@ -331,7 +340,7 @@ fun EditorContent(
                         .fillMaxWidth()
                         .weight(1f - previewShare),
                 ) {
-                    controls()
+                    controls(null)
                 }
             }
         }
@@ -765,6 +774,9 @@ private fun FullscreenPreview(
 // region Preview Fakes
 
 private const val LIVE_PROXY_HEIGHT_PX = 720
+
+/** Share of the landscape height an open panel may take, leaving room for the timeline. */
+private const val LANDSCAPE_SHEET_SHARE = 0.6f
 
 private class FakePreviewTimelineMediaSource : TimelineMediaSource {
     private val bitmapCache = HashMap<Int, ImageBitmap>()
