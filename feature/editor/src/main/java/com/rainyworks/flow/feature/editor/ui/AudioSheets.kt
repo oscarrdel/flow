@@ -757,6 +757,15 @@ internal fun FadesSheetPanel(
                 },
             )
 
+            // For background music: it lowers itself under voice and video sound.
+            SheetSwitchRow(
+                label = "Bajar cuando hay voz",
+                checked = clip.duckUnderVoice,
+                onCheckedChange = { duck ->
+                    onAction(EditorAction.SetDuckUnderVoice(clip.id, duck))
+                },
+            )
+
             if (clip.speed != 1f || clip.speedCurve != null) {
                 SheetSwitchRow(
                     label = "Mantener tono original",

@@ -166,6 +166,8 @@ sealed interface EditorAction {
     data class SetAudioEffects(val clipId: String, val effects: AudioEffects, val final: Boolean) : EditorAction
     data class SetFades(val clipId: String, val fadeInUs: Long, val fadeOutUs: Long, val final: Boolean) : EditorAction
     data class SetPreservePitch(val clipId: String, val preserve: Boolean) : EditorAction
+    /** Background music lowers itself while other clips with sound play. */
+    data class SetDuckUnderVoice(val clipId: String, val duck: Boolean) : EditorAction
     data class SetMuted(val clipId: String, val muted: Boolean) : EditorAction
 
     /** Adds an effect to a clip; with clipId = null adds an effect layer at the playhead. */

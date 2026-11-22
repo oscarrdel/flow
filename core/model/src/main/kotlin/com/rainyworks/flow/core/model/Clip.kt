@@ -26,6 +26,8 @@ data class Clip(
     val muted: Boolean = false,
     val fadeInUs: Long = 0L,
     val fadeOutUs: Long = 0L,
+    /** Background music: lowers itself while other clips with sound (voice, video) play. */
+    val duckUnderVoice: Boolean = false,
     val opacity: Float = 1f,
     val transform: Transform = Transform(),
     /** Variable speed; when set it replaces [speed] for timing. */

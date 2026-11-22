@@ -10,7 +10,10 @@ import kotlin.math.sin
 import kotlin.math.withSign
 
 /** Runs after Media3 trims and retimes the item. One stereo frame advances one playout sample. */
-class ClipGainProcessor(private val clip: Clip) : StereoPcmProcessor() {
+class ClipGainProcessor(
+    private val clip: Clip,
+    private val ducking: Ducking = Ducking(emptyList()),
+) : StereoPcmProcessor() {
     private val keys = clip.keyframes[AnimatedProperty.VOLUME].orEmpty().sortedBy { it.timeUs }
     private val durationUs = clip.durationUs
     private var keyIndex = -1
@@ -20,7 +23,7 @@ class ClipGainProcessor(private val clip: Clip) : StereoPcmProcessor() {
     private var frames = 0L
     private var gain = 1.0
 
-    override fun enabled(sampleRate: Int) = needsGain(clip)
+    override fun enabled(sampleRate: Int) = needsGain(clip) || !ducking.isEmpty
 
     override fun startStream(sampleRate: Int, positionOffsetUs: Long) {
         rate = sampleRate
@@ -58,7 +61,8 @@ class ClipGainProcessor(private val clip: Clip) : StereoPcmProcessor() {
             val elapsedUs = offsetUs + frames * 1_000_000L / rate
             frames++
             gain = volumeAt(elapsedUs).coerceIn(0f, 2f).toDouble() *
-                fade(elapsedUs, clip.fadeInUs) * fade(durationUs - elapsedUs, clip.fadeOutUs)
+                fade(elapsedUs, clip.fadeInUs) * fade(durationUs - elapsedUs, clip.fadeOutUs) *
+                ducking.gainAt(elapsedUs)
         }
         val amplified = input * gain
         if (gain <= 1.0) return amplified

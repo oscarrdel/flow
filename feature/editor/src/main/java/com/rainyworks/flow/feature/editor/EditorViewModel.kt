@@ -296,6 +296,9 @@ class EditorViewModel(
                     it.copy(fadeInUs = action.fadeInUs.coerceIn(0L, half), fadeOutUs = action.fadeOutUs.coerceIn(0L, half))
                 }
             }
+            is EditorAction.SetDuckUnderVoice -> current?.let { project ->
+                apply(Edits.updateClip(project, action.clipId) { it.copy(duckUnderVoice = action.duck) })
+            }
             is EditorAction.SetPreservePitch -> current?.let { project ->
                 apply(Edits.updateClip(project, action.clipId) { it.copy(preservePitch = action.preserve) })
             }

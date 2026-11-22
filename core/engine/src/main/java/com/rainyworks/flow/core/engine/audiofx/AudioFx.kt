@@ -35,7 +35,7 @@ import kotlin.math.pow
  */
 @OptIn(UnstableApi::class)
 object AudioFx {
-    fun processorsFor(clip: Clip): List<AudioProcessor> = buildList {
+    fun processorsFor(clip: Clip, ducking: Ducking = Ducking(emptyList())): List<AudioProcessor> = buildList {
         if (clip.muted) {
             add(ClipGainProcessor(clip))
             return@buildList
@@ -56,7 +56,7 @@ object AudioFx {
         }
         if (fx.echo > 0f) add(EchoProcessor(fx.echo))
         if (fx.reverb > 0f) add(ReverbProcessor(fx.reverb))
-        if (ClipGainProcessor.needsGain(clip)) add(ClipGainProcessor(clip))
+        if (ClipGainProcessor.needsGain(clip) || !ducking.isEmpty) add(ClipGainProcessor(clip, ducking))
     }
 
     /** Supply to EditedMediaItem.Builder.setSpeed for the constant-speed path in editedItem. */

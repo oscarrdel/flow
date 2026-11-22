@@ -29,6 +29,7 @@ import com.rainyworks.flow.core.engine.speed.CurveSpeedProvider
 import com.rainyworks.flow.core.engine.compositing.addCanvasGap
 import com.rainyworks.flow.core.engine.background.CanvasFill
 import com.rainyworks.flow.core.engine.gif.UnpackAlphaEffect
+import com.rainyworks.flow.core.engine.audiofx.Ducking
 import com.rainyworks.flow.core.engine.background.withBlurredPresentation
 import com.rainyworks.flow.core.engine.compositing.clipCropEffects
 import com.rainyworks.flow.core.engine.compositing.clipVideoEffects
@@ -71,21 +72,24 @@ object CompositionFactory {
         val mainLayers = if (rolls == null) listOf(project.mainTrack) else listOf(rolls.b, rolls.a)
         // Media3 dibuja la primera secuencia de video encima de las siguientes.
         val hasVideoLayers = overlays.isNotEmpty() || rolls != null
-        val sequences = overlays.map { sequence(it, durationUs, canvas, settings.frameRate, hasVideoLayers) }.toMutableList()
+        // Music that ducks under other sound gets its envelope from the whole project.
+        val ducking = project.tracks.flatMap { it.clips }.filter { it.duckUnderVoice }
+            .associate { it.id to Ducking.forClip(project, it) { track, clip -> !track.hidden && track.isAudible(clip) } }
+        val sequences = overlays.map { sequence(it, durationUs, canvas, settings.frameRate, hasVideoLayers, ducking = ducking) }.toMutableList()
         val background = project.canvas.background
         // A blurred backdrop is drawn per main-track picture, behind the sharp one.
         val blurredIds = if (background is CanvasBackground.Blur) {
             project.mainTrack.clips.filter { it.hasPicture }.map { it.id }.toSet()
         } else emptySet()
         mainLayers.forEach { track ->
-            val main = sequence(track, durationUs, canvas, settings.frameRate, hasVideoLayers)
+            val main = sequence(track, durationUs, canvas, settings.frameRate, hasVideoLayers, ducking = ducking)
             sequences += if (blurredIds.isEmpty()) main
             else main.withBlurredPresentation(canvas, (background as CanvasBackground.Blur).radius, blurredIds)
         }
         project.tracks.filter {
             (it.kind == TrackKind.AUDIO || (it.kind == TrackKind.OVERLAY && it !in overlays)) &&
                 !it.hidden && it.clips.any(it::isAudible)
-        }.forEach { sequences += sequence(it, durationUs, canvas, settings.frameRate, hasVideoLayers, audioOnly = true) }
+        }.forEach { sequences += sequence(it, durationUs, canvas, settings.frameRate, hasVideoLayers, audioOnly = true, ducking = ducking) }
         // Overlays first (foreground), main track last, matching the video sequence order.
         val layers = LayerBlendCompositor(canvas, overlays + mainLayers, rolls?.windows.orEmpty(), live)
 
@@ -132,6 +136,7 @@ object CompositionFactory {
         fps: Int,
         hasVideoLayers: Boolean,
         audioOnly: Boolean = false,
+        ducking: Map<String, Ducking> = emptyMap(),
     ): EditedMediaItemSequence {
         val types = buildSet {
             if (!audioOnly) add(C.TRACK_TYPE_VIDEO)
@@ -156,7 +161,7 @@ object CompositionFactory {
                     remainingUs -= partUs
                 }
             } else {
-                sequence.addItem(editedItem(clip, media, fps, audible, visible, fit(canvas), hasVideoLayers))
+                sequence.addItem(editedItem(clip, media, fps, audible, visible, fit(canvas), hasVideoLayers, ducking[clip.id]))
             }
             cursorUs = clip.endUs
         }
@@ -213,6 +218,7 @@ object CompositionFactory {
         visible: Boolean,
         presentation: Presentation,
         hasVideoLayers: Boolean,
+        ducking: Ducking? = null,
     ): EditedMediaItem {
         val image = media.type == MediaType.IMAGE || media.type == MediaType.GIF
         val item = MediaItem.Builder().setUri(media.uri).setMediaId(clip.id)
@@ -236,7 +242,7 @@ object CompositionFactory {
             buildList<AudioProcessor> {
                 add(ToInt16PcmAudioProcessor())
                 add(stereoMixer(if (audible) 1f else 0f))
-                if (audible) addAll(AudioFx.processorsFor(clip))
+                if (audible) addAll(AudioFx.processorsFor(clip, ducking ?: Ducking(emptyList())))
             }
         } else emptyList()
         val builder = EditedMediaItem.Builder(item.build())
