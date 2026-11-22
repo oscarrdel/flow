@@ -5,9 +5,9 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.OverlaySettings
 import androidx.media3.common.VideoCompositorSettings
+import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.ChannelMixingAudioProcessor
 import androidx.media3.common.audio.ChannelMixingMatrix
-import androidx.media3.common.audio.SpeedProvider
 import androidx.media3.common.audio.ToInt16PcmAudioProcessor
 import androidx.media3.common.util.Size
 import androidx.media3.common.util.UnstableApi
@@ -19,6 +19,7 @@ import androidx.media3.transformer.Composition
 import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.EditedMediaItemSequence
 import androidx.media3.transformer.Effects
+import com.rainyworks.flow.core.engine.audiofx.AudioFx
 import com.rainyworks.flow.core.engine.color.ColorEffects
 import com.rainyworks.flow.core.engine.color.LutCache
 import com.rainyworks.flow.core.engine.text.TextOverlays
@@ -133,8 +134,12 @@ object CompositionFactory {
         }
         val processors = if (media.hasAudio || media.type == MediaType.AUDIO) {
             // CompositionPlayer puede seleccionar el audio de un clip silenciado en una secuencia mixta.
-            val gain = if (audible) clip.volume else 0f
-            listOf(ToInt16PcmAudioProcessor(), stereoMixer(gain))
+            // The clip volume (including keyframes and fades) is applied by AudioFx, so the mixer stays at unity.
+            buildList<AudioProcessor> {
+                add(ToInt16PcmAudioProcessor())
+                add(stereoMixer(if (audible) 1f else 0f))
+                if (audible) addAll(AudioFx.processorsFor(clip))
+            }
         } else emptyList()
         val builder = EditedMediaItem.Builder(item.build())
             .setDurationUs(durationUs)
@@ -143,10 +148,7 @@ object CompositionFactory {
             .setRemoveVideo(!visible)
             .setEffects(Effects(processors, if (visible) ColorEffects.forGrade(clip.color, LutCache::load) + presentation else emptyList()))
         if (!image && clip.speed != 1f) {
-            builder.setSpeed(object : SpeedProvider {
-                override fun getSpeed(timeUs: Long) = clip.speed
-                override fun getNextSpeedChangeTimeUs(timeUs: Long) = C.TIME_UNSET
-            })
+            builder.setSpeed(AudioFx.speedParametersFor(clip))
         }
         return builder.build()
     }

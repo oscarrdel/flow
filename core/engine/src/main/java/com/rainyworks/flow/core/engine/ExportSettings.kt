@@ -1,5 +1,6 @@
 package com.rainyworks.flow.core.engine
 
+import com.rainyworks.flow.core.model.AnimatedProperty
 import com.rainyworks.flow.core.model.Clip
 import com.rainyworks.flow.core.model.MediaType
 import com.rainyworks.flow.core.model.Project
@@ -61,5 +62,5 @@ internal const val AUDIO_BITRATE = 128_000
 internal val mediaTracks = setOf(TrackKind.MAIN, TrackKind.OVERLAY, TrackKind.AUDIO)
 
 internal fun Track.isAudible(clip: Clip): Boolean =
-    !muted && !clip.muted && clip.volume > 0f &&
+    !muted && !clip.muted && (clip.volume > 0f || clip.keyframes[AnimatedProperty.VOLUME].orEmpty().any { it.value > 0f }) &&
         (clip.media?.hasAudio == true || clip.media?.type == MediaType.AUDIO)
