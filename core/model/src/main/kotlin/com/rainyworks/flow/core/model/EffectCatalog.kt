@@ -63,6 +63,13 @@ object EffectCatalog {
     /** Value of [key] for [effect], falling back to the definition default. */
     fun value(effect: EffectInstance, key: String): Float =
         effect.params[key] ?: find(effect.type)?.params?.firstOrNull { it.key == key }?.default ?: 0f
+
+    /** The parameter at [clipRelativeUs] (time from the clip start), following its keyframes. */
+    fun valueAt(effect: EffectInstance, key: String, clipRelativeUs: Long): Float {
+        val static = value(effect, key)
+        val keyframes = effect.keyframes[key]?.takeIf { it.isNotEmpty() } ?: return static
+        return Animator.valueAt(keyframes, clipRelativeUs, static)
+    }
 }
 
 data class TransitionDefinition(val type: String, val name: String)
@@ -99,16 +106,70 @@ object EffectEdits {
         return Edits.updateClip(project, clipId) { it.copy(effects = it.effects + effect) } to effect.id
     }
 
-    fun setEffectParam(project: Project, clipId: String, effectId: String, key: String, value: Float): Project =
+    /**
+     * Sets a parameter. When the parameter is animated, [atTimelineUs] tells where: the
+     * keyframe there is updated (or a new one added), like moving a clip with motion keyframes.
+     */
+    fun setEffectParam(
+        project: Project,
+        clipId: String,
+        effectId: String,
+        key: String,
+        value: Float,
+        atTimelineUs: Long? = null,
+    ): Project =
         Edits.updateClip(project, clipId) { clip ->
             clip.copy(
                 effects = clip.effects.map { effect ->
                     if (effect.id != effectId) return@map effect
                     val param = EffectCatalog.find(effect.type)?.params?.firstOrNull { it.key == key } ?: return@map effect
-                    effect.copy(params = effect.params + (key to value.coerceIn(param.min, param.max)))
+                    val clamped = value.coerceIn(param.min, param.max)
+                    val animated = effect.keyframes[key].orEmpty()
+                    if (animated.isEmpty() || atTimelineUs == null) {
+                        effect.copy(params = effect.params + (key to clamped))
+                    } else {
+                        val relative = (atTimelineUs - clip.startUs).coerceIn(0L, clip.durationUs)
+                        effect.copy(keyframes = effect.keyframes + (key to upsert(animated, relative, clamped)))
+                    }
                 },
             )
         }
+
+    /**
+     * Adds a keyframe for [key] at [atTimelineUs] with the current value, or removes the one
+     * there. Removing the last keyframe keeps its value as the static one.
+     */
+    fun toggleEffectKeyframe(project: Project, clipId: String, effectId: String, key: String, atTimelineUs: Long): Project =
+        Edits.updateClip(project, clipId) { clip ->
+            clip.copy(
+                effects = clip.effects.map { effect ->
+                    if (effect.id != effectId) return@map effect
+                    val relative = (atTimelineUs - clip.startUs).coerceIn(0L, clip.durationUs)
+                    val list = effect.keyframes[key].orEmpty()
+                    val existing = list.firstOrNull { kotlin.math.abs(it.timeUs - relative) <= KEYFRAME_TOLERANCE_US }
+                    if (existing != null) {
+                        val remaining = list - existing
+                        val params = if (remaining.isEmpty()) effect.params + (key to existing.value) else effect.params
+                        effect.copy(
+                            params = params,
+                            keyframes = if (remaining.isEmpty()) effect.keyframes - key else effect.keyframes + (key to remaining),
+                        )
+                    } else {
+                        val current = EffectCatalog.valueAt(effect, key, relative)
+                        effect.copy(keyframes = effect.keyframes + (key to upsert(list, relative, current)))
+                    }
+                },
+            )
+        }
+
+    private fun upsert(list: List<Keyframe>, timeUs: Long, value: Float): List<Keyframe> {
+        val existing = list.firstOrNull { kotlin.math.abs(it.timeUs - timeUs) <= KEYFRAME_TOLERANCE_US }
+        val keyframe = existing?.copy(value = value) ?: Keyframe(timeUs, value, list.lastOrNull()?.easing ?: Easing.LINEAR)
+        return Animator.setKeyframe(list, keyframe)
+    }
+
+    /** Keyframes this close count as the same one (about one frame at 30 fps). */
+    private const val KEYFRAME_TOLERANCE_US = 34_000L
 
     fun removeEffect(project: Project, clipId: String, effectId: String): Project =
         Edits.updateClip(project, clipId) { clip -> clip.copy(effects = clip.effects.filterNot { it.id == effectId }) }

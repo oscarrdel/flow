@@ -245,6 +245,7 @@ internal fun EffectsSheetPanel(
                             val isExpanded = instance.id in expandedEffectIds
                             AppliedEffectItem(
                                 clipId = clip.id,
+                                clipRelativeUs = (state.playheadUs - clip.startUs).coerceIn(0L, clip.durationUs),
                                 instance = instance,
                                 expanded = isExpanded,
                                 onToggleExpand = {
@@ -323,6 +324,8 @@ private fun EffectCatalogCard(
 @Composable
 private fun AppliedEffectItem(
     clipId: String,
+    /** Playhead position inside the clip, where parameters are shown and keyframed. */
+    clipRelativeUs: Long,
     instance: EffectInstance,
     expanded: Boolean,
     onToggleExpand: () -> Unit,
@@ -395,9 +398,13 @@ private fun AppliedEffectItem(
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 params.forEach { param ->
-                    val currentValue = EffectCatalog.value(instance, param.key)
+                    val currentValue = EffectCatalog.valueAt(instance, param.key, clipRelativeUs)
                         .coerceIn(param.min, param.max)
+                    val keyframes = instance.keyframes[param.key].orEmpty()
+                    val onKeyframe = keyframes.any { kotlin.math.abs(it.timeUs - clipRelativeUs) <= 34_000L }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                     ResettableSlider(
+                        modifier = Modifier.weight(1f),
                         label = param.label,
                         value = currentValue,
                         valueRange = param.min..param.max,
@@ -415,6 +422,13 @@ private fun AppliedEffectItem(
                             )
                         },
                     )
+                    // Animate a parameter: a keyframe at the playhead; with keyframes the slider edits the one here.
+                    KeyframeDiamondButton(
+                        filled = onKeyframe,
+                        contentDescription = if (onKeyframe) "Quitar keyframe de ${param.label}" else "Agregar keyframe de ${param.label}",
+                        onClick = { onAction(EditorAction.ToggleEffectKeyframe(clipId, instance.id, param.key)) },
+                    )
+                    }
                 }
             }
         }

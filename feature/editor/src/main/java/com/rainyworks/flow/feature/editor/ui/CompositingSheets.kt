@@ -995,7 +995,7 @@ private fun MotionValue(label: String, value: String) {
 }
 
 @Composable
-private fun KeyframeDiamondButton(
+internal fun KeyframeDiamondButton(
     filled: Boolean,
     contentDescription: String,
     onClick: () -> Unit,

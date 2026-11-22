@@ -8,8 +8,10 @@ data class EffectInstance(
     val id: String,
     /** Catalog id, for example "blur.gaussian", "glitch", "shake". */
     val type: String,
-    /** Static parameter values; animated ones live in the clip keyframes. */
+    /** Static parameter values, used where a parameter has no keyframes. */
     val params: Map<String, Float> = emptyMap(),
+    /** Animated parameters: keyframes per parameter key, times relative to the clip start. */
+    val keyframes: Map<String, List<Keyframe>> = emptyMap(),
 )
 
 /** Transition into a main-track clip from the clip before it. */

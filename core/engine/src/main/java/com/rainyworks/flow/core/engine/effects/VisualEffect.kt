@@ -22,6 +22,8 @@ class VisualEffect(
     private val effect: EffectInstance,
     private val activeFromUs: Long = Long.MIN_VALUE,
     private val activeUntilUs: Long = Long.MAX_VALUE,
+    /** Timeline start of the clip that owns the effect, for its parameter keyframes. */
+    private val clipStartUs: Long = 0L,
 ) : GlEffect {
     private fun param(key: String) = EffectCatalog.value(effect, key)
 
@@ -37,10 +39,11 @@ class VisualEffect(
                 gl_FragColor = uEnabled > 0.5 ? effect(vUv) : texture2D(uInput, vUv);
             }
         """
+        val keys = EffectCatalog.find(effect.type)?.params?.map { it.key }.orEmpty()
+        val animated = keys.any { effect.keyframes[it]?.isNotEmpty() == true }
         return object : CompositingProgram(useHdr, fragment) {
             override fun configure(program: GlProgram, width: Int, height: Int): Size {
                 program.setIfPresent("uSize", floatArrayOf(width.toFloat(), height.toFloat()))
-                val keys = EffectCatalog.find(effect.type)?.params?.map { it.key }.orEmpty()
                 val values = FloatArray(4) { i -> keys.getOrNull(i)?.let(::param) ?: 0f }
                 program.setIfPresent("uParams", values)
                 return Size(width, height)
@@ -49,6 +52,12 @@ class VisualEffect(
             override fun setFrame(program: GlProgram, presentationTimeUs: Long) {
                 val active = presentationTimeUs in activeFromUs until activeUntilUs
                 program.setIfPresent("uEnabled", floatArrayOf(if (active) 1f else 0f))
+                if (animated) {
+                    val relative = presentationTimeUs - clipStartUs
+                    program.setIfPresent("uParams", FloatArray(4) { i ->
+                        keys.getOrNull(i)?.let { EffectCatalog.valueAt(effect, it, relative) } ?: 0f
+                    })
+                }
                 // Wrap the clock so float precision stays good on long timelines.
                 program.setIfPresent("uTime", floatArrayOf(((presentationTimeUs % 3_600_000_000L) / 1_000_000.0).toFloat()))
             }
