@@ -102,6 +102,8 @@ sealed interface EditorAction {
     data class TrimEnd(val clipId: String, val newEndUs: Long, val final: Boolean) : EditorAction
     data class MoveInMain(val clipId: String, val toIndex: Int) : EditorAction
     data class MoveToLayer(val clipId: String, val trackId: String, val startUs: Long) : EditorAction
+    /** Drop of a dragged layer clip: [trackId] is preferred, another track of its kind is used if busy. */
+    data class PlaceInLayers(val clipId: String, val trackId: String?, val startUs: Long) : EditorAction
 
     data class SetSpeed(val clipId: String, val speed: Float, val final: Boolean) : EditorAction
     /** A speed ramp for the clip, or null to go back to its constant speed. */

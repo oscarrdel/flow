@@ -189,6 +189,26 @@ object Edits {
         return project.copy(tracks = tracks)
     }
 
+    /**
+     * Drag-and-drop for free-placement tracks: moves the clip to [toStartUs] on the preferred
+     * track when it fits there, otherwise onto the first free track of the same kind or a new
+     * one. Tracks left empty are removed.
+     */
+    fun placeInLayers(project: Project, clipId: String, preferredTrackId: String?, toStartUs: Long): Project {
+        val (from, clip) = project.findClip(clipId) ?: return project
+        if (from.isMagnetic || from.locked) return project
+        val moved = clip.copy(startUs = toStartUs.coerceAtLeast(0L))
+        val without = project.replaceTrack(from.copy(clips = from.clips.filterNot { it.id == clipId }))
+        val preferred = preferredTrackId?.let(without::track)
+            ?.takeIf { it.kind == from.kind && !it.locked && it.isFree(moved.startUs, moved.endUs) }
+        val placed = if (preferred != null) {
+            without.replaceTrack(preferred.copy(clips = (preferred.clips + moved).sortedBy { it.startUs }))
+        } else {
+            addToLayer(without, moved, from.kind)
+        }
+        return placed.copy(tracks = placed.tracks.filter { it.isMagnetic || it.clips.isNotEmpty() })
+    }
+
     fun setSpeed(project: Project, clipId: String, speed: Float): Project =
         retimeClip(project, clipId) { it.copy(speed = speed.coerceIn(MIN_SPEED, MAX_SPEED), speedCurve = null) }
 

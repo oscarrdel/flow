@@ -165,6 +165,10 @@ class EditorViewModel(
                 Edits.trimEnd(it, action.clipId, action.newEndUs)
             }
             is EditorAction.MoveInMain -> current?.let { apply(Edits.moveInMain(it, action.clipId, action.toIndex)) }
+            is EditorAction.PlaceInLayers -> current?.let {
+                val placed = Edits.placeInLayers(it, action.clipId, action.trackId, action.startUs)
+                if (placed != it) apply(placed)
+            }
             is EditorAction.MoveToLayer -> current?.let {
                 apply(Edits.moveToLayer(it, action.clipId, action.trackId, action.startUs))
             }

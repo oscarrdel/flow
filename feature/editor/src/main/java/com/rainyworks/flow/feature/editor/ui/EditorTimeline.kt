@@ -286,10 +286,14 @@ internal fun EditorTimeline(
                     onAction = onAction,
                 )
 
-                for (track in secondaryTracks) {
+                val laneStepPx = with(LocalDensity.current) { (SECONDARY_TRACK_HEIGHT + spacing.sm).toPx() }
+                secondaryTracks.forEachIndexed { laneIndex, track ->
                     key(track.id) {
                         SecondaryTrackLane(
                             track = track,
+                            laneIndex = laneIndex,
+                            lanes = secondaryTracks,
+                            laneStepPx = laneStepPx,
                             playheadUs = activePlayheadUs,
                             ppsPx = ppsPx,
                             centerOffsetPx = centerOffsetPx,
@@ -667,6 +671,9 @@ private fun computeReorderTargetIndex(
 @Composable
 private fun SecondaryTrackLane(
     track: Track,
+    laneIndex: Int,
+    lanes: List<Track>,
+    laneStepPx: Float,
     playheadUs: () -> Long,
     ppsPx: Float,
     centerOffsetPx: Float,
@@ -677,15 +684,30 @@ private fun SecondaryTrackLane(
     onAction: (EditorAction) -> Unit,
 ) {
     val density = LocalDensity.current
+    val haptics = LocalHapticFeedback.current
+    val snapDistancePx = with(density) { 10.dp.toPx() }
+    // Long-press drag: horizontal moves the clip in time, vertical to another track of its kind.
+    var draggingClipId by remember { mutableStateOf<String?>(null) }
+    var dragX by remember { mutableFloatStateOf(0f) }
+    var dragY by remember { mutableFloatStateOf(0f) }
+    var snappedUs by remember { mutableStateOf<Long?>(null) }
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(SECONDARY_TRACK_HEIGHT)
+            .zIndex(if (draggingClipId != null) 20f else 0f)
             .background(FlowColors.Graphite.copy(alpha = 0.35f)),
     ) {
         for (clip in track.clips) {
             key(clip.id) {
+                val isDragged = clip.id == draggingClipId
+                val currentOnAction by rememberUpdatedState(onAction)
+                val currentPpsPx by rememberUpdatedState(ppsPx)
+                val currentSnaps by rememberUpdatedState(snapPointsUs)
+                val currentLanes by rememberUpdatedState(lanes)
+                val currentLaneIndex by rememberUpdatedState(laneIndex)
+                val currentClip by rememberUpdatedState(clip)
                 val isSelected = clip.id == selectedClipId
                 val clipWidthPx = ((clip.durationUs.toDouble() / Timecode.US_PER_SECOND) * ppsPx)
                     .toFloat()
@@ -710,8 +732,67 @@ private fun SecondaryTrackLane(
                     mediaSource = mediaSource,
                     onAction = onAction,
                     modifier = Modifier
-                        .zIndex(if (isSelected) 5f else 1f)
-                        .offset { IntOffset(baseStartPx().roundToInt(), 0) },
+                        .zIndex(if (isDragged) 10f else if (isSelected) 5f else 1f)
+                        .offset {
+                            if (!isDragged) return@offset IntOffset(baseStartPx().roundToInt(), 0)
+                            val x = snappedUs?.let { snap ->
+                                centerOffsetPx + ((snap - playheadUs()).toDouble() / Timecode.US_PER_SECOND * ppsPx).toFloat()
+                            } ?: (baseStartPx() + dragX)
+                            IntOffset(x.roundToInt(), dragY.roundToInt())
+                        }
+                        .graphicsLayer {
+                            if (isDragged) {
+                                scaleX = 1.04f
+                                scaleY = 1.06f
+                                alpha = 0.88f
+                            }
+                        }
+                        .pointerInput(clip.id) {
+                            fun proposedStartUs(): Long {
+                                val c = currentClip
+                                return (c.startUs + (dragX / currentPpsPx * Timecode.US_PER_SECOND).roundToLong()).coerceAtLeast(0L)
+                            }
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = {
+                                    draggingClipId = clip.id
+                                    dragX = 0f
+                                    dragY = 0f
+                                    snappedUs = null
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    currentOnAction(EditorAction.SelectClip(clip.id))
+                                },
+                                onDrag = { change, amount ->
+                                    change.consume()
+                                    dragX += amount.x
+                                    dragY += amount.y
+                                    // Snap the start or the end to cuts, markers and the playhead.
+                                    val c = currentClip
+                                    val start = proposedStartUs()
+                                    val toleranceUs = (snapDistancePx / currentPpsPx * Timecode.US_PER_SECOND).toLong()
+                                    val snap = currentSnaps.filter { it != c.startUs && it != c.endUs }.flatMap { point ->
+                                        listOf(point, point - c.durationUs)
+                                    }.filter { it >= 0L }.minByOrNull { abs(it - start) }?.takeIf { abs(it - start) <= toleranceUs }
+                                    if (snap != snappedUs && snap != null) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    snappedUs = snap
+                                },
+                                onDragEnd = {
+                                    val startUs = snappedUs ?: proposedStartUs()
+                                    val laneShift = (dragY / laneStepPx).roundToInt()
+                                    val target = currentLanes.getOrNull(currentLaneIndex + laneShift)
+                                    draggingClipId = null
+                                    dragX = 0f
+                                    dragY = 0f
+                                    snappedUs = null
+                                    currentOnAction(EditorAction.PlaceInLayers(clip.id, target?.id, startUs))
+                                },
+                                onDragCancel = {
+                                    draggingClipId = null
+                                    dragX = 0f
+                                    dragY = 0f
+                                    snappedUs = null
+                                },
+                            )
+                        },
                 )
             }
         }
