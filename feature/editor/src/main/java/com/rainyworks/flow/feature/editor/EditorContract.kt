@@ -62,12 +62,13 @@ data class VoiceOverUiState(
     val mutePreview: Boolean = true,
 )
 
-data class BackgroundTask(val label: String, val progress: Float)
+/** A long job in progress; [progress] is null when its length is unknown. */
+data class BackgroundTask(val label: String, val progress: Float?)
 
 enum class EditorSheet {
     Speed, Volume, AspectRatio, Background, Transform, Crop, Opacity,
     Filters, Adjust, Curves, Hsl, Text, Subtitles,
-    Chroma, Blend, Mask, Keyframes, AudioEffects, Fades, Effects, Transition, InOut, Stickers,
+    Chroma, Blend, Mask, Keyframes, AudioEffects, Fades, Effects, Transition, InOut, Stickers, KenBurns,
 }
 
 /** Global tools shown in the bottom bar when no clip is selected. */
@@ -76,7 +77,7 @@ enum class GlobalTool { Edit, Audio, Text, Overlay, Stickers, Effects, Filters, 
 /** Tools shown in the bottom bar when a clip is selected. */
 enum class ClipTool {
     Split, Speed, Volume, Transform, Opacity, Duplicate, Delete, Replace, Freeze, Reverse, Crop, Chroma, Mask, Animation,
-    Filters, Adjust, EditText, Blend, AudioEffects, Fades, Extract, Effects, InOut,
+    Filters, Adjust, EditText, Blend, AudioEffects, Fades, Extract, Effects, InOut, KenBurns, Beats,
 }
 
 sealed interface EditorAction {
@@ -103,6 +104,8 @@ sealed interface EditorAction {
     data class MoveInMain(val clipId: String, val toIndex: Int) : EditorAction
     data class MoveToLayer(val clipId: String, val trackId: String, val startUs: Long) : EditorAction
     /** Drop of a dragged layer clip: [trackId] is preferred, another track of its kind is used if busy. */
+    /** Slow zoom/pan over a photo, or null to remove it. */
+    data class SetKenBurns(val clipId: String, val style: com.rainyworks.flow.core.model.KenBurnsStyle?) : EditorAction
     /** Adds a shape or emoji sticker as an overlay at the playhead and selects it. */
     data class AddSticker(val spec: com.rainyworks.flow.core.model.StickerSpec) : EditorAction
     data class PlaceInLayers(val clipId: String, val trackId: String?, val startUs: Long) : EditorAction

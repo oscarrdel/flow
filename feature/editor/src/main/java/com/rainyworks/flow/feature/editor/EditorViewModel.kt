@@ -72,6 +72,8 @@ class EditorViewModel(
     private val previewShortSide: Flow<Int>? = null,
     /** Draws a sticker into an image file; null when stickers are unavailable. */
     private val stickers: (suspend (com.rainyworks.flow.core.model.StickerSpec) -> MediaRef)? = null,
+    /** Finds beat times (source microseconds) in a media file; null when unavailable. */
+    private val beats: (suspend (MediaRef) -> LongArray)? = null,
 ) : ViewModel() {
     private val _state = MutableStateFlow(EditorUiState())
     val state: StateFlow<EditorUiState> = _state.asStateFlow()
@@ -168,6 +170,7 @@ class EditorViewModel(
             }
             is EditorAction.MoveInMain -> current?.let { apply(Edits.moveInMain(it, action.clipId, action.toIndex)) }
             is EditorAction.AddSticker -> addSticker(action.spec)
+            is EditorAction.SetKenBurns -> current?.let { apply(com.rainyworks.flow.core.model.KenBurns.apply(it, action.clipId, action.style)) }
             is EditorAction.PlaceInLayers -> current?.let {
                 val placed = Edits.placeInLayers(it, action.clipId, action.trackId, action.startUs)
                 if (placed != it) apply(placed)
@@ -338,6 +341,38 @@ class EditorViewModel(
             EditorAction.StartVoiceOver -> startVoiceOver()
             EditorAction.StopVoiceOver -> stopVoiceOver(keep = true)
             EditorAction.CancelVoiceOver -> stopVoiceOver(keep = false)
+        }
+    }
+
+    private fun detectBeats(clipId: String) {
+        val detect = beats ?: return
+        val media = history?.present?.findClip(clipId)?.second?.media?.takeIf { it.hasAudio || it.type == MediaType.AUDIO } ?: return
+        if (taskJob?.isActive == true) return
+        preview.pause()
+        val token = Any()
+        taskToken = token
+        taskJob = viewModelScope.launch {
+            _state.update { it.copy(task = BackgroundTask(strings.findingBeats, null)) }
+            val found = try {
+                detect(media)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            } finally {
+                if (taskToken === token) _state.update { it.copy(task = null) }
+            }
+            if (taskToken !== token) return@launch
+            taskToken = null
+            val project = history?.present ?: return@launch
+            val updated = found?.let { Edits.addBeatMarkers(project, clipId, it) }
+            val added = updated?.markers?.count { it.label == Edits.BEAT_MARKER_LABEL } ?: 0
+            if (updated == null || added == 0) {
+                notify(strings.noBeatsFound)
+            } else {
+                apply(updated)
+                notify(strings.beatsFound.format(added))
+            }
         }
     }
 
@@ -697,6 +732,8 @@ class EditorViewModel(
             ClipTool.Extract -> extractAudio()
             ClipTool.Effects -> _state.update { it.copy(activeSheet = EditorSheet.Effects) }
             ClipTool.InOut -> _state.update { it.copy(activeSheet = EditorSheet.InOut) }
+            ClipTool.KenBurns -> _state.update { it.copy(activeSheet = EditorSheet.KenBurns) }
+            ClipTool.Beats -> detectBeats(clipId)
             ClipTool.Reverse -> reverseClip(clipId)
             ClipTool.Duplicate -> apply(Edits.duplicate(project, clipId))
             ClipTool.Delete -> {
@@ -842,4 +879,8 @@ data class EditorStrings(
     val reverseFailed: String,
     val reverseRemoved: String,
     val cannotReverse: String,
+    val findingBeats: String = "Buscando el ritmo…",
+    val noBeatsFound: String = "No se encontró un ritmo claro",
+    /** Format string with one %d for the number of beats. */
+    val beatsFound: String = "%d marcadores en el ritmo",
 )

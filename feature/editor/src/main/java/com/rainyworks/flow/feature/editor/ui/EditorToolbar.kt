@@ -14,6 +14,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.AcUnit
 import androidx.compose.material.icons.rounded.Animation
+import androidx.compose.material.icons.rounded.ZoomIn
 import androidx.compose.material.icons.rounded.AspectRatio
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.AutoFixHigh
@@ -194,6 +195,7 @@ private val VisualOnlyTools = setOf(
 )
 
 private val TimedOnlyTools = setOf(
+    ClipTool.Beats,
     ClipTool.Speed,
     ClipTool.Reverse,
     ClipTool.Freeze,
@@ -204,6 +206,7 @@ private val TimedOnlyTools = setOf(
 )
 
 private val AudioClipTools = setOf(
+    ClipTool.Beats,
     ClipTool.AudioEffects,
     ClipTool.Fades,
     ClipTool.Extract,
@@ -269,7 +272,9 @@ internal fun clipToolsFor(
     } else {
         base.filterNot { it in AudioClipTools }
     }
-    return if (isOverlay) audioFiltered else audioFiltered.filterNot { it == ClipTool.Blend }
+    // Ken Burns moves a still picture; video and text already move.
+    val kenBurns = audioFiltered.filter { it != ClipTool.KenBurns || kind == ClipKind.IMAGE }
+    return if (isOverlay) kenBurns else kenBurns.filterNot { it == ClipTool.Blend }
 }
 
 private fun ClipTool.spanishLabel(): String = when (this) {
@@ -296,6 +301,8 @@ private fun ClipTool.spanishLabel(): String = when (this) {
     ClipTool.Extract -> "Extraer audio"
     ClipTool.Effects -> "Efectos"
     ClipTool.InOut -> "Entrada/Salida"
+    ClipTool.KenBurns -> "Ken Burns"
+    ClipTool.Beats -> "Ritmo"
 }
 
 private fun ClipTool.icon(): ImageVector = when (this) {
@@ -322,4 +329,6 @@ private fun ClipTool.icon(): ImageVector = when (this) {
     ClipTool.Extract -> Icons.Rounded.GraphicEq
     ClipTool.Effects -> Icons.Rounded.AutoAwesome
     ClipTool.InOut -> Icons.Rounded.Animation
+    ClipTool.KenBurns -> Icons.Rounded.ZoomIn
+    ClipTool.Beats -> Icons.Rounded.GraphicEq
 }

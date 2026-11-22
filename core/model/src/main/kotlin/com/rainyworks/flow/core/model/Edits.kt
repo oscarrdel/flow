@@ -239,6 +239,34 @@ object Edits {
     fun addMarker(project: Project, timeUs: Long): Project =
         project.copy(markers = (project.markers + Marker(newId(), timeUs.coerceAtLeast(0L))).sortedBy { it.timeUs })
 
+    /** Label of the markers placed by beat detection. */
+    const val BEAT_MARKER_LABEL = "Ritmo"
+
+    /**
+     * Places a marker on every beat of [clipId]'s audio. [sourceBeatsUs] are times in the
+     * source file; those outside the trimmed part are skipped. Earlier beat markers inside
+     * the clip are replaced.
+     */
+    fun addBeatMarkers(project: Project, clipId: String, sourceBeatsUs: LongArray): Project {
+        val (_, clip) = project.findClip(clipId) ?: return project
+        val sourceSpan = clip.trimOutUs - clip.trimInUs
+        val timeline = sourceBeatsUs.asSequence()
+            .filter { it in clip.trimInUs..clip.trimOutUs }
+            .map { source ->
+                // Offset into the played source, in playing order.
+                val played = if (clip.reversed) clip.trimOutUs - source else source - clip.trimInUs
+                val offset = clip.speedCurve?.let { SpeedRamp.timelineOffsetAt(played, sourceSpan, it) }
+                    ?: (played / clip.speed.toDouble()).toLong()
+                clip.startUs + offset
+            }
+            .filter { it in clip.startUs until clip.endUs }
+            .sorted()
+            .toList()
+        val kept = project.markers.filterNot { it.label == BEAT_MARKER_LABEL && it.timeUs in clip.startUs until clip.endUs }
+        val added = timeline.map { Marker(newId(), it, BEAT_MARKER_LABEL) }
+        return project.copy(markers = (kept + added).sortedBy { it.timeUs })
+    }
+
     fun removeMarker(project: Project, markerId: String): Project =
         project.copy(markers = project.markers.filterNot { it.id == markerId })
 

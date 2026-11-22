@@ -85,6 +85,11 @@ internal fun EditorActiveSheet(
     modifier: Modifier = Modifier,
 ) {
     when (sheet) {
+        EditorSheet.KenBurns -> KenBurnsSheetPanel(
+            state = state,
+            onAction = onAction,
+            modifier = modifier,
+        )
         EditorSheet.Speed -> SpeedSheetPanel(
             state = state,
             onAction = onAction,

@@ -72,6 +72,7 @@ fun FlowNavHost(container: AppContainer) {
                             previewShortSide = container.editorPreferences.previewQuality.map { it.shortSidePx },
                             reverser = { media, progress -> container.reverseProxy.create(media, progress) },
                             stickers = { spec -> container.stickers.render(spec) },
+                            beats = { media -> container.beats.detect(media) },
                         )
                     }
                 },

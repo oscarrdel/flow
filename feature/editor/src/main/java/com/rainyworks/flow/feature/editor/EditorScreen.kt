@@ -190,9 +190,14 @@ private fun TaskProgressCard(task: BackgroundTask, onCancel: () -> Unit, modifie
         ) {
             androidx.compose.material3.Text(task.label, style = androidx.compose.material3.MaterialTheme.typography.titleSmall)
             androidx.compose.foundation.layout.Spacer(Modifier.padding(6.dp))
-            androidx.compose.material3.LinearProgressIndicator(progress = { task.progress })
-            androidx.compose.foundation.layout.Spacer(Modifier.padding(4.dp))
-            androidx.compose.material3.Text("${(task.progress * 100).toInt()}%")
+            val progress = task.progress
+            if (progress == null) {
+                androidx.compose.material3.LinearProgressIndicator()
+            } else {
+                androidx.compose.material3.LinearProgressIndicator(progress = { progress })
+                androidx.compose.foundation.layout.Spacer(Modifier.padding(4.dp))
+                androidx.compose.material3.Text("${(progress * 100).toInt()}%")
+            }
             androidx.compose.material3.TextButton(onClick = onCancel) { androidx.compose.material3.Text("Cancelar") }
         }
     }
