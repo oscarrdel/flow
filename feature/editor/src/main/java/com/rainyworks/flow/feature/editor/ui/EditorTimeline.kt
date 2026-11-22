@@ -179,15 +179,20 @@ internal fun EditorTimeline(
                 awaitEachGesture {
                     awaitFirstDown(requireUnconsumed = false)
                     var scrubbingGesture = false
+                    var childOwnsGesture = false
+                    var pendingPanX = 0f
+                    var pendingPanY = 0f
+                    val touchSlop = viewConfiguration.touchSlop
                     var latestScrubUs = activePlayheadUs()
                     var zoomAccumulator = currentPps
 
                     do {
                         val event = awaitPointerEvent()
                         val pressedCount = event.changes.count { it.pressed }
-                        // Trim handles and clip reordering consume their drags; never scrub on top of them.
-                        val handledByChild = event.changes.any { it.isConsumed }
-                        if (handledByChild) {
+                        // Trim handles and clip reordering handle the event first (children run
+                        // before parents). Once they claim a drag, the timeline never scrubs.
+                        if (!scrubbingGesture && event.changes.any { it.isConsumed }) childOwnsGesture = true
+                        if (childOwnsGesture) {
                             continue
                         } else if (pressedCount >= 2) {
                             val zoomChange = event.calculateZoom()
@@ -201,19 +206,24 @@ internal fun EditorTimeline(
                             }
                         } else if (pressedCount == 1) {
                             val pan = event.calculatePan()
-                            if (abs(pan.x) > 0.5f && abs(pan.x) >= abs(pan.y) * 0.7f) {
-                                if (!scrubbingGesture) {
-                                    scrubbingGesture = true
-                                    latestScrubUs = activePlayheadUs()
-                                    scrubPlayheadUs = latestScrubUs
-                                    isScrubbing = true
-                                }
-                                val deltaUs = ((-pan.x / currentPpsPx) * Timecode.US_PER_SECOND).roundToLong()
-                                latestScrubUs = (latestScrubUs + deltaUs).coerceIn(0L, currentMaxTimelineUs)
+                            var panX = pan.x
+                            if (!scrubbingGesture) {
+                                // Wait for the same touch slop the handles use, so they get the first chance.
+                                pendingPanX += pan.x
+                                pendingPanY += pan.y
+                                val horizontal = abs(pendingPanX) >= abs(pendingPanY) * 0.7f
+                                if (abs(pendingPanX) <= touchSlop || !horizontal) continue
+                                scrubbingGesture = true
+                                latestScrubUs = activePlayheadUs()
                                 scrubPlayheadUs = latestScrubUs
-                                currentOnAction(EditorAction.Seek(latestScrubUs, final = false))
-                                event.changes.forEach { if (it.positionChanged()) it.consume() }
+                                isScrubbing = true
+                                panX = pendingPanX - touchSlop * kotlin.math.sign(pendingPanX)
                             }
+                            val deltaUs = ((-panX / currentPpsPx) * Timecode.US_PER_SECOND).roundToLong()
+                            latestScrubUs = (latestScrubUs + deltaUs).coerceIn(0L, currentMaxTimelineUs)
+                            scrubPlayheadUs = latestScrubUs
+                            currentOnAction(EditorAction.Seek(latestScrubUs, final = false))
+                            event.changes.forEach { if (it.positionChanged()) it.consume() }
                         }
                     } while (event.changes.any { it.pressed })
 

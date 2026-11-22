@@ -2,6 +2,7 @@ package com.rainyworks.flow.feature.editor
 
 import android.Manifest
 import android.content.Intent
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -121,6 +122,8 @@ fun EditorScreen(
         snackbar.showSnackbar(notice)
         viewModel.onAction(EditorAction.NoticeShown)
     }
+
+    BackHandler { viewModel.onAction(EditorAction.Back) }
 
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
         viewModel.onStop()

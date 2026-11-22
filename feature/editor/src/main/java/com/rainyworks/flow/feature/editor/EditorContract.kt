@@ -123,6 +123,10 @@ sealed interface EditorAction {
 
     data class AddSubtitle(val cue: SubtitleCue) : EditorAction
     data class UpdateSubtitle(val clipId: String, val cue: SubtitleCue) : EditorAction
+    data class RemoveSubtitle(val clipId: String) : EditorAction
+
+    /** System back: closes the open panel, then the selection, then the editor. */
+    data object Back : EditorAction
     data object ImportSrt : EditorAction
     data object ExportSrt : EditorAction
 

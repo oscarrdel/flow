@@ -1,5 +1,7 @@
 package com.rainyworks.flow.feature.editor.ui
 
+import androidx.compose.material.icons.rounded.DeleteOutline
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -1019,7 +1021,7 @@ internal fun SubtitlesSheetPanel(
 
     FlowBottomPanel(
         title = "Subtítulos",
-        subtitle = if (blocks.isEmpty()) "Sin bloques de subtítulos" else "${blocks.size} bloques · SRT",
+        subtitle = if (blocks.isEmpty()) "Aún no hay subtítulos" else if (blocks.size == 1) "1 subtítulo" else "${blocks.size} subtítulos",
         onDismiss = { onAction(EditorAction.DismissSheet) },
         modifier = modifier,
     ) {
@@ -1031,7 +1033,7 @@ internal fun SubtitlesSheetPanel(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             SheetActionChip(
-                label = "Agregar en el cabezal",
+                label = "Agregar subtítulo",
                 icon = Icons.Rounded.Add,
                 enabled = true,
                 onClick = {
@@ -1048,13 +1050,13 @@ internal fun SubtitlesSheetPanel(
                 },
             )
             SheetActionChip(
-                label = "Importar .srt",
+                label = "Importar archivo .srt",
                 icon = Icons.Rounded.FileOpen,
                 enabled = true,
                 onClick = { onAction(EditorAction.ImportSrt) },
             )
             SheetActionChip(
-                label = "Exportar .srt",
+                label = "Guardar archivo .srt",
                 icon = Icons.Rounded.FileDownload,
                 enabled = blocks.isNotEmpty(),
                 onClick = { onAction(EditorAction.ExportSrt) },
@@ -1064,8 +1066,14 @@ internal fun SubtitlesSheetPanel(
         Spacer(Modifier.height(spacing.sm))
 
         if (blocks.isEmpty()) {
-            SheetEmptyMessage("Agrega un subtítulo en el cabezal o importa un archivo .srt.")
+            SheetEmptyMessage("Toca «Agregar subtítulo» para crear uno donde está el cabezal, o importa un archivo .srt.")
         } else {
+            Text(
+                text = "Para cambiar cuánto dura un subtítulo, arrastra sus bordes en la línea de tiempo.",
+                style = FlowTypography.bodySmall,
+                color = FlowColors.TextSecondary,
+            )
+            Spacer(Modifier.height(spacing.sm))
             Column(
                 modifier = Modifier
                     .heightIn(max = SUBTITLES_LIST_MAX_HEIGHT)
@@ -1084,6 +1092,7 @@ internal fun SubtitlesSheetPanel(
                         onUpdateCue = { updatedCue ->
                             onAction(EditorAction.UpdateSubtitle(block.clipId, updatedCue))
                         },
+                        onDelete = { onAction(EditorAction.RemoveSubtitle(block.clipId)) },
                     )
                 }
             }
@@ -1099,6 +1108,7 @@ private fun SubtitleBlockCard(
     frameUs: Long,
     onSeekToStart: () -> Unit,
     onUpdateCue: (SubtitleCue) -> Unit,
+    onDelete: () -> Unit,
 ) {
     val spacing = FlowTheme.spacing
     val cue = block.cue
@@ -1136,16 +1146,19 @@ private fun SubtitleBlockCard(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = "${Timecode.format(cue.startUs, fps)} – ${Timecode.format(cue.endUs, fps)}",
+                text = "${readableTime(cue.startUs)} – ${readableTime(cue.endUs)}",
                 style = TimecodeStyle,
                 color = if (isActiveAtPlayhead) FlowColors.Accent else FlowColors.TextPrimary,
             )
-            Text(
-                text = "Toca para ir al inicio",
-                style = FlowTypography.labelSmall,
-                color = FlowColors.TextSecondary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+            Icon(
+                imageVector = Icons.Rounded.DeleteOutline,
+                contentDescription = "Eliminar subtítulo",
+                tint = FlowColors.TextSecondary,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(onClick = onDelete)
+                    .padding(4.dp)
+                    .size(20.dp),
             )
         }
 
@@ -1168,94 +1181,14 @@ private fun SubtitleBlockCard(
             onFocusStateChange = { focused = it },
         )
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(spacing.xs),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            TimingStepButton(
-                label = "Inicio -1f",
-                icon = Icons.Rounded.Remove,
-                onClick = {
-                    val newStart = (cue.startUs - frameUs).coerceAtLeast(0L)
-                    onUpdateCue(cue.copy(startUs = newStart, text = localText.ifBlank { DEFAULT_SUBTITLE_TEXT }))
-                },
-            )
-            TimingStepButton(
-                label = "Inicio +1f",
-                icon = Icons.Rounded.Add,
-                onClick = {
-                    val newStart = (cue.startUs + frameUs).coerceAtMost(cue.endUs - Edits.MIN_CLIP_US)
-                    onUpdateCue(cue.copy(startUs = newStart, text = localText.ifBlank { DEFAULT_SUBTITLE_TEXT }))
-                },
-            )
-            TimingStepButton(
-                label = "Fijar inicio al cabezal",
-                icon = Icons.Rounded.Schedule,
-                onClick = {
-                    val newStart = playheadUs.coerceIn(0L, (cue.endUs - Edits.MIN_CLIP_US).coerceAtLeast(0L))
-                    onUpdateCue(cue.copy(startUs = newStart, text = localText.ifBlank { DEFAULT_SUBTITLE_TEXT }))
-                },
-            )
-            TimingStepButton(
-                label = "Fin -1f",
-                icon = Icons.Rounded.Remove,
-                onClick = {
-                    val newEnd = (cue.endUs - frameUs).coerceAtLeast(cue.startUs + Edits.MIN_CLIP_US)
-                    onUpdateCue(cue.copy(endUs = newEnd, text = localText.ifBlank { DEFAULT_SUBTITLE_TEXT }))
-                },
-            )
-            TimingStepButton(
-                label = "Fin +1f",
-                icon = Icons.Rounded.Add,
-                onClick = {
-                    val newEnd = cue.endUs + frameUs
-                    onUpdateCue(cue.copy(endUs = newEnd, text = localText.ifBlank { DEFAULT_SUBTITLE_TEXT }))
-                },
-            )
-            TimingStepButton(
-                label = "Fijar fin al cabezal",
-                icon = Icons.Rounded.Schedule,
-                onClick = {
-                    val newEnd = playheadUs.coerceAtLeast(cue.startUs + Edits.MIN_CLIP_US)
-                    onUpdateCue(cue.copy(endUs = newEnd, text = localText.ifBlank { DEFAULT_SUBTITLE_TEXT }))
-                },
-            )
-        }
     }
 }
 
-@Composable
-private fun TimingStepButton(
-    label: String,
-    icon: ImageVector,
-    onClick: () -> Unit,
-) {
-    val shape = RoundedCornerShape(8.dp)
-    Row(
-        modifier = Modifier
-            .clip(shape)
-            .background(FlowColors.Graphite)
-            .border(1.dp, FlowColors.Outline, shape)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(3.dp),
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = FlowColors.Accent,
-            modifier = Modifier.size(13.dp),
-        )
-        Text(
-            text = label,
-            style = FlowTypography.labelSmall,
-            color = FlowColors.TextPrimary,
-        )
-    }
+/** Seconds with one decimal, e.g. 0:01.5 — easier to read than frame-based timecodes. */
+private fun readableTime(us: Long): String {
+    val tenths = (us.coerceAtLeast(0L) + 50_000L) / 100_000L
+    return "%d:%02d.%d".format(tenths / 600, (tenths / 10) % 60, tenths % 10)
 }
+
 
 // endregion

@@ -207,8 +207,11 @@ class EditorViewModel(
             is EditorAction.AddSubtitle -> current?.let { apply(SubtitleEdits.addCue(it, action.cue)) }
             is EditorAction.UpdateSubtitle -> current?.let {
                 val updated = MediaEdits.updateSubtitle(it, action.clipId, action.cue)
-                if (updated == it) notify(strings.subtitleOverlaps) else apply(updated)
+                // Typing merges into one undo step until another edit happens.
+                if (updated == it) notify(strings.subtitleOverlaps) else drag("subtitle-${action.clipId}", final = false) { updated }
             }
+            is EditorAction.RemoveSubtitle -> current?.let { apply(Edits.delete(it, action.clipId)) }
+            EditorAction.Back -> back()
             EditorAction.ImportSrt -> viewModelScope.launch { _events.send(EditorEvent.OpenDocument(DocumentKind.Srt)) }
             EditorAction.ExportSrt -> current?.let { project ->
                 if (SubtitleEdits.cues(project).isEmpty()) {
@@ -431,6 +434,18 @@ class EditorViewModel(
                 if (bytes.size > maxBytes) null else bytes.toString(Charsets.UTF_8)
             }
         }.getOrNull()
+    }
+
+    private fun back() {
+        val state = _state.value
+        when {
+            state.voiceOver != null -> stopVoiceOver(keep = false)
+            state.pickingChromaFor != null -> _state.update { it.copy(pickingChromaFor = null) }
+            state.fullscreenPreview -> _state.update { it.copy(fullscreenPreview = false) }
+            state.activeSheet != null || state.audioPanelOpen -> _state.update { it.copy(activeSheet = null, audioPanelOpen = false) }
+            state.selectedClipId != null -> _state.update { it.copy(selectedClipId = null) }
+            else -> onAction(EditorAction.Close)
+        }
     }
 
     private fun extractAudio() {
