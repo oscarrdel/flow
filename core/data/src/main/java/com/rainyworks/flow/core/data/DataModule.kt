@@ -15,6 +15,8 @@ class DataModule(context: Context) {
 
     val fontStore: FontStore by lazy { FontStore(appContext) }
 
+    val editorPreferences: EditorPreferences by lazy { EditorPreferences(appContext) }
+
     val projectRepository: ProjectRepository by lazy {
         ProjectRepository(
             store = ProjectFileStore(File(appContext.filesDir, "projects")),

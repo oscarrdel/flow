@@ -8,6 +8,7 @@ import android.net.Uri
 import android.util.LruCache
 import com.rainyworks.flow.core.model.AnimatedProperty
 import com.rainyworks.flow.core.model.Clip
+import com.rainyworks.flow.core.model.ClipAnimations
 import com.rainyworks.flow.core.model.ClipKind
 import com.rainyworks.flow.core.model.TextContent
 import com.rainyworks.flow.core.model.animatedValue
@@ -35,10 +36,12 @@ class TextRenderer(context: Context) {
             return null
         }
         val motion = TextAnimations.at(content, timelineUs - clip.startUs, clip.durationUs)
-        val opacity = clip.opacity * clip.animatedValue(AnimatedProperty.OPACITY, timelineUs, 1f) * motion.alpha
+        // Keyframes plus the clip's entrance/exit animation, then the text-specific motion.
+        val (rendered, clipOpacity) = ClipAnimations.renderedTransform(clip, timelineUs)
+        val opacity = clipOpacity * motion.alpha
         val alpha = (255f * opacity.coerceIn(0f, 1f)).roundToInt()
         val transform = clip.transform
-        val scale = clip.animatedValue(AnimatedProperty.SCALE, timelineUs, transform.scale) * motion.scale
+        val scale = rendered.scale * motion.scale
         if (alpha == 0 || scale == 0f) return null
 
         val end = when {
@@ -52,9 +55,9 @@ class TextRenderer(context: Context) {
         if (end == 0 && !motion.cursor && content.background == null) return null
         return TextFrame(
             content, alpha, end, motion.cursor,
-            clip.animatedValue(AnimatedProperty.OFFSET_X, timelineUs, transform.offsetX) + motion.dx,
-            clip.animatedValue(AnimatedProperty.OFFSET_Y, timelineUs, transform.offsetY) + motion.dy,
-            clip.animatedValue(AnimatedProperty.ROTATION, timelineUs, transform.rotationDegrees),
+            rendered.offsetX + motion.dx,
+            rendered.offsetY + motion.dy,
+            rendered.rotationDegrees,
             if (transform.flipHorizontal) -scale else scale,
             if (transform.flipVertical) -scale else scale,
         )

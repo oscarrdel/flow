@@ -45,7 +45,8 @@ class LayerBlendCompositor(
             val t = clip.transform
             clip.opacity != 1f || t.scale != 1f || t.offsetX != 0f || t.offsetY != 0f ||
                 t.rotationDegrees != 0f || t.flipHorizontal || t.flipVertical ||
-                clip.keyframes.keys.any { it in OVERLAY_PROPERTIES }
+                clip.keyframes.keys.any { it in OVERLAY_PROPERTIES } ||
+                clip.enterAnimation != null || clip.exitAnimation != null
         }
     } else {
         layers.any { clips -> clips.any { it.blendMode != BlendMode.NORMAL } }

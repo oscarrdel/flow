@@ -13,25 +13,20 @@ import androidx.media3.effect.Presentation
 import androidx.media3.effect.StaticOverlaySettings
 import androidx.media3.transformer.EditedMediaItemSequence
 import androidx.media3.transformer.Effects
-import com.rainyworks.flow.core.model.AnimatedProperty
 import com.rainyworks.flow.core.model.Clip
+import com.rainyworks.flow.core.model.ClipAnimations
 import com.rainyworks.flow.core.model.MediaType
-import com.rainyworks.flow.core.model.animatedValue
 
 /** [presentationTimeUs] is composition time, including gaps and preceding items. */
 @OptIn(UnstableApi::class)
 fun animatedOverlaySettings(clip: Clip, presentationTimeUs: Long): OverlaySettings {
-    fun value(key: String, default: Float) = clip.animatedValue(key, presentationTimeUs, default)
-    val t = clip.transform
-    val scale = value(AnimatedProperty.SCALE, t.scale)
+    // Keyframes plus entrance/exit animations, evaluated at composition (timeline) time.
+    val (t, opacity) = ClipAnimations.renderedTransform(clip, presentationTimeUs)
     return StaticOverlaySettings.Builder()
-        .setBackgroundFrameAnchor(
-            (2f * value(AnimatedProperty.OFFSET_X, t.offsetX)).coerceIn(-1f, 1f),
-            (-2f * value(AnimatedProperty.OFFSET_Y, t.offsetY)).coerceIn(-1f, 1f),
-        )
-        .setScale(if (t.flipHorizontal) -scale else scale, if (t.flipVertical) -scale else scale)
-        .setRotationDegrees(-value(AnimatedProperty.ROTATION, t.rotationDegrees))
-        .setAlphaScale(value(AnimatedProperty.OPACITY, clip.opacity).coerceIn(0f, 1f))
+        .setBackgroundFrameAnchor((2f * t.offsetX).coerceIn(-1f, 1f), (-2f * t.offsetY).coerceIn(-1f, 1f))
+        .setScale(if (t.flipHorizontal) -t.scale else t.scale, if (t.flipVertical) -t.scale else t.scale)
+        .setRotationDegrees(-t.rotationDegrees)
+        .setAlphaScale(opacity)
         .build()
 }
 

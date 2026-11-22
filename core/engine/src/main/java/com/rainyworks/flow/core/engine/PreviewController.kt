@@ -156,6 +156,19 @@ class PreviewController @MainThread constructor(context: Context) {
         }
     }
 
+    private var previewShortSidePx = DEFAULT_PREVIEW_SHORT_SIDE
+
+    /** Lower values make heavy projects play smoothly; the current project is rebuilt at once. */
+    fun setPreviewResolution(shortSidePx: Int) = onMain {
+        val value = shortSidePx.coerceIn(MIN_PREVIEW_SHORT_SIDE, MAX_PREVIEW_SHORT_SIDE)
+        if (value == previewShortSidePx) return@onMain
+        previewShortSidePx = value
+        val project = current ?: return@onMain
+        // A non-null current project makes prepareProject recreate the player, which Media3
+        // needs whenever the composition changes.
+        prepareProject(project)
+    }
+
     fun setProject(project: Project) = onMain {
         pending = project
         if (current == null) applyPending()
@@ -190,7 +203,7 @@ class PreviewController @MainThread constructor(context: Context) {
         current = project
         startedSincePrepare = forcePlay
         try {
-            preview.setComposition(CompositionFactory.build(project, forExport = false), positionMs)
+            preview.setComposition(CompositionFactory.build(project, ExportSettings(heightPx = previewShortSidePx)), positionMs)
             preview.prepare()
             preview.playWhenReady = resume
             if (resume) watchForStalls()
@@ -274,3 +287,6 @@ private const val STALL_CHECK_MS = 500L
 private const val STALL_TIMEOUT_MS = 1_500L
 private const val STALL_NUDGE_MS = 34L
 private const val MAX_STALL_RECOVERIES = 2
+private const val DEFAULT_PREVIEW_SHORT_SIDE = 720
+private const val MIN_PREVIEW_SHORT_SIDE = 240
+private const val MAX_PREVIEW_SHORT_SIDE = 1080

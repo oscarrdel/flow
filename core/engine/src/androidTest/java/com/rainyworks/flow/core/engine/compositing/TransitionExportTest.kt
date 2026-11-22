@@ -106,4 +106,32 @@ class TransitionExportTest {
             retriever.release()
         }
     }
+
+    @Test
+    fun entranceAndExitAnimationsRender() {
+        var p = ProjectFactory.create("t", 0L)
+        p = p.copy(canvas = p.canvas.copy(aspectRatio = AspectRatio.R1_1, followFirstClip = false))
+        p = Edits.insertIntoMain(p, listOf(ProjectFactory.clipFor(solid("red3", Color.RED), imageDurationUs = 3_000_000L)))
+        val id = p.mainTrack.clips.single().id
+        p = com.rainyworks.flow.core.model.MediaEdits.setEnterAnimation(
+            p, id, com.rainyworks.flow.core.model.ClipAnimation(com.rainyworks.flow.core.model.ClipAnimationType.ZOOM_IN, 1_000_000),
+        )
+        p = com.rainyworks.flow.core.model.MediaEdits.setExitAnimation(
+            p, id, com.rainyworks.flow.core.model.ClipAnimation(com.rainyworks.flow.core.model.ClipAnimationType.SLIDE_UP, 1_000_000),
+        )
+        val video = render(p)
+        val early = centerColor(video, 50_000)
+        val middle = centerColor(video, 1_500_000)
+        assertTrue("entrance starts transparent ${Integer.toHexString(early)}", Color.red(early) < 90)
+        assertTrue("fully visible in the middle ${Integer.toHexString(middle)}", Color.red(middle) > 200)
+        val retriever = MediaMetadataRetriever()
+        try {
+            retriever.setDataSource(video.absolutePath)
+            val frame = retriever.getFrameAtTime(2_800_000, MediaMetadataRetriever.OPTION_CLOSEST)!!
+            val bottom = frame.getPixel(frame.width / 2, frame.height * 9 / 10)
+            assertTrue("exit moved up, bottom cleared ${Integer.toHexString(bottom)}", Color.red(bottom) < 90)
+        } finally {
+            retriever.release()
+        }
+    }
 }

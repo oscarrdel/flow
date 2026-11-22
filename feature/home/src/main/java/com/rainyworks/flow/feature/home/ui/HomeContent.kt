@@ -31,7 +31,7 @@ import androidx.compose.material.icons.rounded.DriveFileRenameOutline
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.VideoLibrary
-import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -136,8 +136,8 @@ fun HomeContent(
                     }
                     IconButton(onClick = { onAction(HomeAction.OpenAbout) }) {
                         Icon(
-                            imageVector = Icons.Rounded.Info,
-                            contentDescription = "Acerca de y licencias",
+                            imageVector = Icons.Rounded.Settings,
+                            contentDescription = "Ajustes y licencias",
                             tint = FlowColors.TextSecondary,
                         )
                     }
