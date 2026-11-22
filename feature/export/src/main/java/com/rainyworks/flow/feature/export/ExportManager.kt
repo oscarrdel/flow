@@ -6,6 +6,11 @@ import androidx.core.content.ContextCompat
 import com.rainyworks.flow.core.engine.ExportSettings
 import com.rainyworks.flow.core.engine.ExportState
 import com.rainyworks.flow.core.engine.Exporter
+import com.rainyworks.flow.core.engine.audio.AudioExportSettings
+import com.rainyworks.flow.core.engine.audio.AudioExporter
+import com.rainyworks.flow.core.engine.gif.GifExporter
+import com.rainyworks.flow.core.engine.gif.GifSettings
+import kotlinx.coroutines.flow.Flow
 import com.rainyworks.flow.core.model.Project
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -25,6 +30,8 @@ data class ExportJob(val projectId: String, val projectName: String, val phase: 
  * progress notification.
  */
 class ExportManager(context: Context, private val exporter: Exporter) {
+    private val gifs by lazy { GifExporter(appContext, exporter) }
+    private val audio by lazy { AudioExporter(appContext) }
     private val appContext = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val _job = MutableStateFlow<ExportJob?>(null)
@@ -34,13 +41,19 @@ class ExportManager(context: Context, private val exporter: Exporter) {
     val isRendering: Boolean get() = _job.value?.phase is ExportPhase.Rendering
 
     fun estimateSizeBytes(project: Project, settings: ExportSettings): Long = exporter.estimateSizeBytes(project, settings)
+    fun estimateSizeBytes(project: Project, settings: GifSettings): Long = gifs.estimateSizeBytes(project, settings)
+    fun estimateSizeBytes(project: Project, settings: AudioExportSettings): Long = audio.estimateSizeBytes(project, settings)
 
-    fun start(project: Project, settings: ExportSettings) {
+    fun start(project: Project, settings: ExportSettings) = run(project) { exporter.export(project, settings, project.name) }
+    fun start(project: Project, settings: GifSettings) = run(project) { gifs.export(project, settings, project.name) }
+    fun start(project: Project, settings: AudioExportSettings) = run(project) { audio.export(project, settings, project.name) }
+
+    private fun run(project: Project, work: () -> Flow<ExportState>) {
         if (isRendering) return
         _job.value = ExportJob(project.id, project.name, ExportPhase.Rendering(0f, null))
         ContextCompat.startForegroundService(appContext, Intent(appContext, ExportService::class.java))
         running = scope.launch {
-            exporter.export(project, settings, project.name).collect { state ->
+            work().collect { state ->
                 val phase = when (state) {
                     is ExportState.Running -> ExportPhase.Rendering(state.progress, state.etaMs)
                     is ExportState.Success -> ExportPhase.Done(state.uri, state.sizeBytes)

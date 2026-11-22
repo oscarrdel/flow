@@ -130,6 +130,7 @@ fun EditorContent(
 
     val isVerticalCanvas = aspectRatio.value < 1f
     var showSafeZones by rememberSaveable { mutableStateOf(false) }
+    val textRenderer = rememberTextRenderer()
 
     val selection = remember(state.project, state.selectedClipId) {
         state.selectedClipId?.let { id -> state.project?.findClip(id) }
@@ -146,7 +147,10 @@ fun EditorContent(
             aspectRatio = aspectRatio,
             background = canvasBackground,
             loading = loading,
+            project = state.project,
             playheadUs = state.playheadUs,
+            playheadProvider = playheadProvider,
+            textRenderer = textRenderer,
             durationUs = totalDurationUs,
             fps = state.fps,
             isPlaying = state.isPlaying,
@@ -166,10 +170,17 @@ fun EditorContent(
             preview = preview,
             modifier = paneModifier,
             overlay = {
+                TextOverlayLayer(
+                    project = state.project,
+                    playheadUs = playheadProvider,
+                    renderer = textRenderer,
+                    modifier = Modifier.fillMaxSize(),
+                )
                 CanvasInteractionLayer(
                     clip = editableClip,
                     showSafeZones = showSafeZones && isVerticalCanvas,
                     onAction = dispatch,
+                    textRenderer = textRenderer,
                     modifier = Modifier.fillMaxSize(),
                 )
             },
@@ -301,6 +312,8 @@ fun EditorContent(
 private fun isVisualClip(track: Track, clip: Clip): Boolean =
     track.kind != TrackKind.AUDIO &&
         clip.kind != ClipKind.AUDIO &&
+        clip.kind != ClipKind.ADJUSTMENT &&
+        clip.kind != ClipKind.EFFECT &&
         clip.media?.type != MediaType.AUDIO
 
 @Composable
@@ -612,7 +625,10 @@ private fun FullscreenPreview(
     aspectRatio: AspectRatio,
     background: CanvasBackground,
     loading: Boolean,
+    project: Project?,
     playheadUs: Long,
+    playheadProvider: () -> Long,
+    textRenderer: TextRenderer,
     durationUs: Long,
     fps: Int,
     isPlaying: Boolean,
@@ -649,6 +665,14 @@ private fun FullscreenPreview(
             onDoubleTap = { onAction(EditorAction.TogglePlay) },
             preview = preview,
             modifier = Modifier.fillMaxSize(),
+            overlay = {
+                TextOverlayLayer(
+                    project = project,
+                    playheadUs = playheadProvider,
+                    renderer = textRenderer,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            },
         )
 
         AnimatedVisibility(

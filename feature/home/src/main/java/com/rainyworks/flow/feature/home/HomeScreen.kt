@@ -13,6 +13,7 @@ import com.rainyworks.flow.feature.home.ui.HomeContent
 fun HomeScreen(
     viewModel: HomeViewModel,
     onOpenProject: (String) -> Unit,
+    onOpenAbout: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -26,5 +27,9 @@ fun HomeScreen(
         onPauseOrDispose { }
     }
 
-    HomeContent(state = state, onAction = viewModel::onAction, modifier = modifier)
+    HomeContent(
+        state = state,
+        onAction = { action -> if (action == HomeAction.OpenAbout) onOpenAbout() else viewModel.onAction(action) },
+        modifier = modifier,
+    )
 }

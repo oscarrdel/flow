@@ -33,6 +33,9 @@ data class EditorRoute(val projectId: String)
 @Serializable
 data class ExportRoute(val projectId: String)
 
+@Serializable
+object AboutRoute
+
 @Composable
 fun FlowNavHost(container: AppContainer) {
     val navController = rememberNavController()
@@ -47,6 +50,7 @@ fun FlowNavHost(container: AppContainer) {
             HomeScreen(
                 viewModel = viewModel,
                 onOpenProject = { id -> navController.navigate(EditorRoute(id)) { launchSingleTop = true } },
+                onOpenAbout = { navController.navigate(AboutRoute) { launchSingleTop = true } },
             )
         }
         composable<EditorRoute> { entry ->
@@ -74,6 +78,9 @@ fun FlowNavHost(container: AppContainer) {
                 onClose = { navController.popBackStack() },
                 onExport = { id -> navController.navigate(ExportRoute(id)) { launchSingleTop = true } },
             )
+        }
+        composable<AboutRoute> {
+            AboutScreen(onBack = { navController.popBackStack() })
         }
         composable<ExportRoute> { entry ->
             val route = entry.toRoute<ExportRoute>()

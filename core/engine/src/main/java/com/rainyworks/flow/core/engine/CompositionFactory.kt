@@ -11,12 +11,18 @@ import androidx.media3.common.audio.SpeedProvider
 import androidx.media3.common.audio.ToInt16PcmAudioProcessor
 import androidx.media3.common.util.Size
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.common.Effect
+import androidx.media3.effect.OverlayEffect
 import androidx.media3.effect.Presentation
 import androidx.media3.effect.StaticOverlaySettings
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.EditedMediaItemSequence
 import androidx.media3.transformer.Effects
+import com.rainyworks.flow.core.engine.color.ColorEffects
+import com.rainyworks.flow.core.engine.color.LutCache
+import com.rainyworks.flow.core.engine.text.TextOverlays
+import com.rainyworks.flow.core.engine.text.TextRenderer
 import com.rainyworks.flow.core.model.Clip
 import com.rainyworks.flow.core.model.ClipKind
 import com.rainyworks.flow.core.model.MediaRef
@@ -30,14 +36,18 @@ import kotlin.math.roundToInt
 object CompositionFactory {
     fun build(project: Project, forExport: Boolean): Composition =
         if (forExport) build(project, ExportSettings())
-        else compose(project, ExportSettings(heightPx = 720))
+        else compose(project, ExportSettings(heightPx = 720), titles = null)
 
-    fun build(project: Project, settings: ExportSettings): Composition {
+    /**
+     * [titles] draws text clips over the final frame. The editor preview leaves it null
+     * because it draws titles itself for instant feedback while typing.
+     */
+    fun build(project: Project, settings: ExportSettings, titles: TextRenderer? = null): Composition {
         require(project.durationUs > 0) { "El proyecto está vacío." }
-        return compose(project, settings)
+        return compose(project, settings, titles)
     }
 
-    private fun compose(project: Project, settings: ExportSettings): Composition {
+    private fun compose(project: Project, settings: ExportSettings, titles: TextRenderer?): Composition {
         val canvas = Size(settings.width(project), settings.height(project))
         val durationUs = project.durationUs.coerceAtLeast(1_000L)
         val overlays = project.tracks.filter {
@@ -51,8 +61,13 @@ object CompositionFactory {
                 !it.hidden && it.clips.any(it::isAudible)
         }.forEach { sequences += sequence(it, durationUs, canvas, settings.frameRate, audioOnly = true) }
 
+        val textOverlays = titles?.let { TextOverlays.forProject(project, it, canvas.width, canvas.height) }.orEmpty()
+        val finalEffects = buildList<Effect> {
+            add(fit(canvas))
+            if (textOverlays.isNotEmpty()) add(OverlayEffect(textOverlays))
+        }
         val builder = Composition.Builder(sequences)
-            .setEffects(Effects(emptyList(), listOf(fit(canvas))))
+            .setEffects(Effects(emptyList(), finalEffects))
             .setHdrMode(Composition.HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_OPEN_GL)
         if (overlays.isNotEmpty()) builder.setVideoCompositorSettings(LayerCompositor(canvas, overlays))
         return builder.build()
@@ -126,7 +141,7 @@ object CompositionFactory {
             .setFrameRate(fps)
             .setRemoveAudio(!audible)
             .setRemoveVideo(!visible)
-            .setEffects(Effects(processors, if (visible) listOf(presentation) else emptyList()))
+            .setEffects(Effects(processors, if (visible) ColorEffects.forGrade(clip.color, LutCache::load) + presentation else emptyList()))
         if (!image && clip.speed != 1f) {
             builder.setSpeed(object : SpeedProvider {
                 override fun getSpeed(timeUs: Long) = clip.speed

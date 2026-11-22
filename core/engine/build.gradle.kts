@@ -18,7 +18,9 @@ android {
 }
 
 dependencies {
+    implementation(project(":core:mp3"))
     api(project(":core:model"))
+    implementation(project(":core:gif"))
     implementation(libs.androidx.core.ktx)
     api(libs.androidx.media3.common)
     api(libs.androidx.media3.exoplayer)

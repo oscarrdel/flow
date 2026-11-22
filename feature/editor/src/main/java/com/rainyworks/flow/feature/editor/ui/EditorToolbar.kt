@@ -16,12 +16,15 @@ import androidx.compose.material.icons.rounded.AcUnit
 import androidx.compose.material.icons.rounded.Animation
 import androidx.compose.material.icons.rounded.AspectRatio
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.AutoFixHigh
 import androidx.compose.material.icons.rounded.Colorize
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.ContentCut
 import androidx.compose.material.icons.rounded.Contrast
 import androidx.compose.material.icons.rounded.Crop
 import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Exposure
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.MusicNote
@@ -29,6 +32,7 @@ import androidx.compose.material.icons.rounded.Opacity
 import androidx.compose.material.icons.rounded.OpenWith
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Speed
+import androidx.compose.material.icons.rounded.Subtitles
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.Title
 import androidx.compose.material.icons.rounded.Tune
@@ -45,6 +49,7 @@ import com.rainyworks.flow.core.designsystem.theme.FlowTheme
 import com.rainyworks.flow.core.model.ClipKind
 import com.rainyworks.flow.feature.editor.ClipTool
 import com.rainyworks.flow.feature.editor.EditorAction
+import com.rainyworks.flow.feature.editor.EditorSheet
 import com.rainyworks.flow.feature.editor.GlobalTool
 
 /**
@@ -106,15 +111,32 @@ internal fun EditorBottomToolbar(
                 contentPadding = PaddingValues(horizontal = spacing.md),
                 horizontalArrangement = Arrangement.spacedBy(spacing.xs),
             ) {
-                items(
-                    items = GlobalTool.entries,
-                    key = { it.name },
-                ) { tool ->
-                    FlowToolButton(
-                        icon = tool.icon(),
-                        label = tool.spanishLabel(),
-                        onClick = { onAction(EditorAction.GlobalToolClicked(tool)) },
-                    )
+                GlobalTool.entries.forEach { tool ->
+                    item(key = tool.name) {
+                        FlowToolButton(
+                            icon = tool.icon(),
+                            label = tool.spanishLabel(),
+                            onClick = { onAction(EditorAction.GlobalToolClicked(tool)) },
+                        )
+                    }
+                    if (tool == GlobalTool.Text) {
+                        item(key = "Subtitles") {
+                            FlowToolButton(
+                                icon = Icons.Rounded.Subtitles,
+                                label = "Subtítulos",
+                                onClick = { onAction(EditorAction.OpenSheet(EditorSheet.Subtitles)) },
+                            )
+                        }
+                    }
+                    if (tool == GlobalTool.Filters) {
+                        item(key = "Adjustment") {
+                            FlowToolButton(
+                                icon = Icons.Rounded.Exposure,
+                                label = "Ajuste",
+                                onClick = { onAction(EditorAction.AddAdjustmentLayer) },
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -138,7 +160,7 @@ private fun GlobalTool.icon(): ImageVector = when (this) {
     GlobalTool.Text -> Icons.Rounded.Title
     GlobalTool.Overlay -> Icons.Rounded.Layers
     GlobalTool.Effects -> Icons.Rounded.AutoAwesome
-    GlobalTool.Filters -> Icons.Rounded.Tune
+    GlobalTool.Filters -> Icons.Rounded.AutoFixHigh
     GlobalTool.Format -> Icons.Rounded.AspectRatio
     GlobalTool.Canvas -> Icons.Rounded.Palette
 }
@@ -150,6 +172,9 @@ private val VisualOnlyTools = setOf(
     ClipTool.Chroma,
     ClipTool.Mask,
     ClipTool.Freeze,
+    ClipTool.Filters,
+    ClipTool.Adjust,
+    ClipTool.EditText,
 )
 
 private val TimedOnlyTools = setOf(
@@ -159,10 +184,34 @@ private val TimedOnlyTools = setOf(
     ClipTool.Volume,
 )
 
-private fun clipToolsFor(kind: ClipKind?): List<ClipTool> = when (kind) {
+private val HiddenForTextTools = setOf(
+    ClipTool.Speed,
+    ClipTool.Reverse,
+    ClipTool.Freeze,
+    ClipTool.Volume,
+    ClipTool.Replace,
+    ClipTool.Chroma,
+    ClipTool.Filters,
+    ClipTool.Adjust,
+    ClipTool.Crop,
+    ClipTool.Mask,
+    ClipTool.EditText,
+)
+
+private val AdjustmentLayerTools = listOf(
+    ClipTool.Filters,
+    ClipTool.Adjust,
+    ClipTool.Split,
+    ClipTool.Duplicate,
+    ClipTool.Delete,
+)
+
+internal fun clipToolsFor(kind: ClipKind?): List<ClipTool> = when (kind) {
     ClipKind.AUDIO -> ClipTool.entries.filterNot { it in VisualOnlyTools }
-    ClipKind.IMAGE -> ClipTool.entries.filterNot { it in TimedOnlyTools }
-    else -> ClipTool.entries
+    ClipKind.IMAGE -> ClipTool.entries.filterNot { it in TimedOnlyTools || it == ClipTool.EditText }
+    ClipKind.TEXT -> listOf(ClipTool.EditText) + ClipTool.entries.filterNot { it in HiddenForTextTools }
+    ClipKind.ADJUSTMENT -> AdjustmentLayerTools
+    else -> ClipTool.entries.filterNot { it == ClipTool.EditText }
 }
 
 private fun ClipTool.spanishLabel(): String = when (this) {
@@ -180,6 +229,9 @@ private fun ClipTool.spanishLabel(): String = when (this) {
     ClipTool.Chroma -> "Chroma"
     ClipTool.Mask -> "Máscara"
     ClipTool.Animation -> "Animación"
+    ClipTool.Filters -> "Filtros"
+    ClipTool.Adjust -> "Ajustes"
+    ClipTool.EditText -> "Editar"
 }
 
 private fun ClipTool.icon(): ImageVector = when (this) {
@@ -197,4 +249,7 @@ private fun ClipTool.icon(): ImageVector = when (this) {
     ClipTool.Chroma -> Icons.Rounded.Colorize
     ClipTool.Mask -> Icons.Rounded.Contrast
     ClipTool.Animation -> Icons.Rounded.Animation
+    ClipTool.Filters -> Icons.Rounded.AutoFixHigh
+    ClipTool.Adjust -> Icons.Rounded.Tune
+    ClipTool.EditText -> Icons.Rounded.Edit
 }

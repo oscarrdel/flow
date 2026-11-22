@@ -43,6 +43,7 @@ class HomeViewModel(
                 is HomeAction.RenameProject -> repository.rename(action.id, action.name)
                 is HomeAction.DuplicateProject -> repository.duplicate(action.id, strings.copySuffix)
                 is HomeAction.DeleteProject -> repository.delete(action.id)
+                HomeAction.OpenAbout -> Unit
                 HomeAction.ClearCache -> {
                     repository.clearCache()
                     refreshCacheSize()

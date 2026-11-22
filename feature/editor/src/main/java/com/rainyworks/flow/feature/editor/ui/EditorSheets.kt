@@ -120,11 +120,42 @@ internal fun EditorActiveSheet(
             onAction = onAction,
             modifier = modifier,
         )
+        EditorSheet.Filters -> FiltersSheetPanel(
+            state = state,
+            mediaSource = mediaSource,
+            onAction = onAction,
+            modifier = modifier,
+        )
+        EditorSheet.Adjust -> AdjustSheetPanel(
+            state = state,
+            onAction = onAction,
+            modifier = modifier,
+        )
+        EditorSheet.Curves -> CurvesSheetPanel(
+            state = state,
+            onAction = onAction,
+            modifier = modifier,
+        )
+        EditorSheet.Hsl -> HslSheetPanel(
+            state = state,
+            onAction = onAction,
+            modifier = modifier,
+        )
+        EditorSheet.Text -> TextSheetPanel(
+            state = state,
+            onAction = onAction,
+            modifier = modifier,
+        )
+        EditorSheet.Subtitles -> SubtitlesSheetPanel(
+            state = state,
+            onAction = onAction,
+            modifier = modifier,
+        )
     }
 }
 
 @Composable
-private fun rememberSelectedClip(state: EditorUiState): Clip? {
+internal fun rememberSelectedClip(state: EditorUiState): Clip? {
     val project = state.project
     val clipId = state.selectedClipId
     return remember(project, clipId) { clipId?.let { project?.findClip(it)?.second } }
@@ -132,7 +163,7 @@ private fun rememberSelectedClip(state: EditorUiState): Clip? {
 
 /** Slider keeping its own value while dragging; reports `final = true` when released. */
 @Composable
-private fun SheetSlider(
+internal fun SheetSlider(
     label: String,
     value: Float,
     valueRange: ClosedFloatingPointRange<Float>,
@@ -446,7 +477,7 @@ private fun OpacitySheetPanel(
 }
 
 @Composable
-private fun SheetActionChip(
+internal fun SheetActionChip(
     label: String,
     icon: ImageVector,
     enabled: Boolean,
@@ -480,7 +511,7 @@ private fun SheetActionChip(
 }
 
 @Composable
-private fun sheetChipColors() = FilterChipDefaults.filterChipColors(
+internal fun sheetChipColors() = FilterChipDefaults.filterChipColors(
     containerColor = FlowColors.Slate,
     labelColor = FlowColors.TextPrimary,
     iconColor = FlowColors.TextSecondary,
@@ -489,7 +520,7 @@ private fun sheetChipColors() = FilterChipDefaults.filterChipColors(
     selectedLeadingIconColor = FlowColors.Accent,
 )
 
-private fun formatSignedPercent(value: Float): String {
+internal fun formatSignedPercent(value: Float): String {
     val percent = (value * 100f).roundToInt()
     return if (percent > 0) "+$percent%" else "$percent%"
 }

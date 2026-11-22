@@ -31,6 +31,7 @@ import androidx.compose.material.icons.rounded.DriveFileRenameOutline
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.VideoLibrary
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -131,6 +132,13 @@ fun HomeContent(
                         Text(
                             text = "Limpiar caché ($cacheLabel)",
                             style = FlowTypography.labelLarge,
+                        )
+                    }
+                    IconButton(onClick = { onAction(HomeAction.OpenAbout) }) {
+                        Icon(
+                            imageVector = Icons.Rounded.Info,
+                            contentDescription = "Acerca de y licencias",
+                            tint = FlowColors.TextSecondary,
                         )
                     }
                 },

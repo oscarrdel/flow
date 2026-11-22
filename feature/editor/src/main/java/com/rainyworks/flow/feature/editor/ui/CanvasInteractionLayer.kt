@@ -58,6 +58,7 @@ internal fun CanvasInteractionLayer(
     showSafeZones: Boolean,
     onAction: (EditorAction) -> Unit,
     modifier: Modifier = Modifier,
+    textRenderer: TextRenderer = rememberTextRenderer(),
 ) {
     val density = LocalDensity.current
     val haptics = LocalHapticFeedback.current
@@ -66,6 +67,7 @@ internal fun CanvasInteractionLayer(
 
     val currentClip by rememberUpdatedState(clip)
     val currentOnAction by rememberUpdatedState(onAction)
+    val currentTextRenderer by rememberUpdatedState(textRenderer)
 
     var gestureTransform by remember { mutableStateOf<Transform?>(null) }
     var guideVertical by remember { mutableStateOf(false) }
@@ -83,7 +85,7 @@ internal fun CanvasInteractionLayer(
                 if (canvasSize.width <= 0f || canvasSize.height <= 0f) return@awaitEachGesture
 
                 val startTransform = target.transform
-                val startedOnClip = clipFrameFor(canvasSize, target.media, startTransform)
+                val startedOnClip = frameForClip(target, startTransform, canvasSize, currentTextRenderer)
                     .contains(down.position, hitSlopPx)
 
                 var active = false
@@ -159,7 +161,7 @@ internal fun CanvasInteractionLayer(
 
         val target = clip ?: return@Canvas
         val transform = gestureTransform ?: target.transform
-        val frame = clipFrameFor(size, target.media, transform)
+        val frame = frameForClip(target, transform, size, textRenderer)
         drawClipFrame(frame)
 
         val guideEffect = PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(), 5.dp.toPx()))
@@ -184,6 +186,14 @@ internal fun CanvasInteractionLayer(
         }
     }
 }
+
+private fun frameForClip(
+    clip: Clip,
+    transform: Transform,
+    canvasSize: Size,
+    textRenderer: TextRenderer,
+): ClipFrame = textRenderer.frameFor(clip, transform, canvasSize)
+    ?: clipFrameFor(canvasSize, clip.media, transform)
 
 private fun DrawScope.drawClipFrame(frame: ClipFrame) {
     val corners = frame.corners()

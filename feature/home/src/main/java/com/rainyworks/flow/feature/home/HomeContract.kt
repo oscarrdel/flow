@@ -15,4 +15,5 @@ sealed interface HomeAction {
     data class DuplicateProject(val id: String) : HomeAction
     data class DeleteProject(val id: String) : HomeAction
     data object ClearCache : HomeAction
+    data object OpenAbout : HomeAction
 }

@@ -21,6 +21,7 @@ import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.ProgressHolder
 import androidx.media3.transformer.Transformer
 import androidx.media3.transformer.VideoEncoderSettings
+import com.rainyworks.flow.core.engine.text.TextRenderer
 import com.rainyworks.flow.core.model.Project
 import java.io.File
 import java.io.IOException
@@ -49,6 +50,7 @@ sealed interface ExportState {
 @OptIn(UnstableApi::class)
 class Exporter(context: Context) {
     private val app = context.applicationContext
+    private val titles by lazy { TextRenderer(app) }
     private val workers = mutableSetOf<Job>()
 
     fun estimateSizeBytes(project: Project, settings: ExportSettings): Long =
@@ -63,7 +65,7 @@ class Exporter(context: Context) {
                     outcome = ExportState.Failed("Agrega al menos un clip antes de exportar.")
                     return@launch
                 }
-                val composition = CompositionFactory.build(project, settings)
+                val composition = CompositionFactory.build(project, settings, titles)
                 val temp = File.createTempFile("flow-", ".mp4", app.cacheDir)
                 try {
                     trySend(ExportState.Running(0f, null))
@@ -93,6 +95,21 @@ class Exporter(context: Context) {
             synchronized(workers) { workers.remove(worker) }
         }
     }.buffer(Channel.CONFLATED)
+
+    /**
+     * Renders [project] to an MP4 at [output] without publishing it, for pipelines that
+     * post-process the video (GIF, audio-only). Throws [ExportException] on encoder errors.
+     */
+    suspend fun render(
+        project: Project,
+        settings: ExportSettings,
+        output: File,
+        onProgress: (progress: Float, etaMs: Long?) -> Unit,
+    ) {
+        require(!project.isEmpty) { "Empty project" }
+        val composition = CompositionFactory.build(project, settings, titles)
+        encode(composition, output, settings, settings.bitrate(project)) { onProgress(it.progress, it.etaMs) }
+    }
 
     /** Cancela las exportaciones activas de esta instancia y avisa a los recolectores que sigan activos. */
     fun cancel() {

@@ -798,7 +798,8 @@ private fun TimelineClipItem(
                     modifier = Modifier.size(12.dp),
                 )
             }
-            val title = clip.media?.displayName?.ifBlank { trackKind.spanishTitle() }
+            val title = clip.text?.text?.replace('\n', ' ')?.ifBlank { null }
+                ?: clip.media?.displayName?.ifBlank { trackKind.spanishTitle() }
                 ?: trackKind.spanishTitle()
             Text(
                 text = title,

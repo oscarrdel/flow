@@ -34,6 +34,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.RangeSlider
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -46,6 +50,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.rainyworks.flow.core.designsystem.theme.FlowColors
 import com.rainyworks.flow.core.designsystem.theme.FlowTheme
 import com.rainyworks.flow.core.engine.VideoCodec
+import com.rainyworks.flow.core.engine.audio.AudioFormat
+import com.rainyworks.flow.core.engine.gif.GifSettings
 import com.rainyworks.flow.core.model.Timecode
 import java.util.Locale
 
@@ -97,32 +103,19 @@ private fun ExportSettingsPanel(state: ExportUiState, viewModel: ExportViewModel
                     color = FlowColors.TextSecondary,
                 )
             }
-            Section("Resolución") {
-                ExportResolution.entries.forEach {
-                    FilterChip(selected = state.resolution == it, onClick = { viewModel.setResolution(it) }, label = { Text(it.label) })
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                ExportKind.entries.forEachIndexed { i, kind ->
+                    SegmentedButton(
+                        selected = state.kind == kind,
+                        onClick = { viewModel.setKind(kind) },
+                        shape = SegmentedButtonDefaults.itemShape(i, ExportKind.entries.size),
+                    ) { Text(kind.label) }
                 }
             }
-            Section("Fotogramas por segundo") {
-                listOf(24, 25, 30, 50, 60).forEach { fps ->
-                    FilterChip(selected = state.frameRate == fps, onClick = { viewModel.setFrameRate(fps) }, label = { Text("$fps") })
-                }
-            }
-            Section("Calidad (tasa de bits)") {
-                ExportQuality.entries.forEach {
-                    FilterChip(selected = state.quality == it, onClick = { viewModel.setQuality(it) }, label = { Text(it.label) })
-                }
-            }
-            Section("Códec") {
-                FilterChip(
-                    selected = state.codec == VideoCodec.H264,
-                    onClick = { viewModel.setCodec(VideoCodec.H264) },
-                    label = { Text("H.264 · compatible") },
-                )
-                FilterChip(
-                    selected = state.codec == VideoCodec.HEVC,
-                    onClick = { viewModel.setCodec(VideoCodec.HEVC) },
-                    label = { Text("H.265 · menor peso") },
-                )
+            when (state.kind) {
+                ExportKind.Video -> VideoOptions(state, viewModel)
+                ExportKind.Gif -> GifOptions(state, viewModel)
+                ExportKind.Audio -> AudioOptions(state, viewModel)
             }
         }
         Column(Modifier.padding(vertical = FlowTheme.spacing.lg)) {
@@ -151,7 +144,114 @@ private fun ExportSettingsPanel(state: ExportUiState, viewModel: ExportViewModel
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp),
-            ) { Text("Exportar video") }
+            ) {
+                Text(
+                    when (state.kind) {
+                        ExportKind.Video -> "Exportar video"
+                        ExportKind.Gif -> "Crear GIF"
+                        ExportKind.Audio -> "Exportar audio"
+                    },
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun VideoOptions(state: ExportUiState, viewModel: ExportViewModel) {
+    Column(verticalArrangement = Arrangement.spacedBy(FlowTheme.spacing.lg)) {
+        Section("Resolución") {
+            ExportResolution.entries.forEach {
+                FilterChip(selected = state.resolution == it, onClick = { viewModel.setResolution(it) }, label = { Text(it.label) })
+            }
+        }
+        Section("Fotogramas por segundo") {
+            listOf(24, 25, 30, 50, 60).forEach { fps ->
+                FilterChip(selected = state.frameRate == fps, onClick = { viewModel.setFrameRate(fps) }, label = { Text("$fps") })
+            }
+        }
+        Section("Calidad (tasa de bits)") {
+            ExportQuality.entries.forEach {
+                FilterChip(selected = state.quality == it, onClick = { viewModel.setQuality(it) }, label = { Text(it.label) })
+            }
+        }
+        Section("Códec") {
+            FilterChip(
+                selected = state.codec == VideoCodec.H264,
+                onClick = { viewModel.setCodec(VideoCodec.H264) },
+                label = { Text("H.264 · compatible") },
+            )
+            FilterChip(
+                selected = state.codec == VideoCodec.HEVC,
+                onClick = { viewModel.setCodec(VideoCodec.HEVC) },
+                label = { Text("H.265 · menor peso") },
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun GifOptions(state: ExportUiState, viewModel: ExportViewModel) {
+    val duration = state.project?.durationUs ?: 0L
+    Column(verticalArrangement = Arrangement.spacedBy(FlowTheme.spacing.lg)) {
+        Text(
+            "Fragmento: ${Timecode.format(state.gifStartUs)} – ${Timecode.format(state.gifEndUs)} " +
+                "(máx. ${GifSettings.MAX_DURATION_US / 1_000_000} s)",
+            style = MaterialTheme.typography.titleSmall,
+        )
+        if (duration > 0L) {
+            RangeSlider(
+                value = state.gifStartUs.toFloat()..state.gifEndUs.toFloat(),
+                onValueChange = { viewModel.setGifRange(it.start.toLong(), it.endInclusive.toLong()) },
+                valueRange = 0f..duration.toFloat(),
+            )
+        }
+        Section("Tamaño") {
+            listOf(320, 480, 640).forEach { px ->
+                FilterChip(selected = state.gifMaxSidePx == px, onClick = { viewModel.setGifSize(px) }, label = { Text("$px px") })
+            }
+        }
+        Section("Fotogramas por segundo") {
+            listOf(8, 12, 15, 24).forEach { fps ->
+                FilterChip(selected = state.gifFrameRate == fps, onClick = { viewModel.setGifFrameRate(fps) }, label = { Text("$fps") })
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AudioOptions(state: ExportUiState, viewModel: ExportViewModel) {
+    Column(verticalArrangement = Arrangement.spacedBy(FlowTheme.spacing.lg)) {
+        Section("Formato") {
+            AudioFormat.entries.forEach { format ->
+                FilterChip(
+                    selected = state.audioFormat == format,
+                    onClick = { viewModel.setAudioFormat(format) },
+                    label = {
+                        Text(
+                            when (format) {
+                                AudioFormat.MP3 -> "MP3 · universal"
+                                AudioFormat.M4A -> "M4A · mejor calidad/peso"
+                                AudioFormat.WAV -> "WAV · sin pérdida"
+                            },
+                        )
+                    },
+                )
+            }
+        }
+        if (state.audioFormat != AudioFormat.WAV) {
+            Section("Calidad") {
+                listOf(128, 192, 256, 320).forEach { kbps ->
+                    FilterChip(
+                        selected = state.audioBitrateKbps == kbps,
+                        onClick = { viewModel.setAudioBitrate(kbps) },
+                        label = { Text("$kbps kbps") },
+                    )
+                }
+            }
         }
     }
 }
@@ -199,16 +299,16 @@ private fun DonePanel(phase: ExportPhase.Done, onDone: () -> Unit, modifier: Mod
     ) {
         Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = FlowColors.Accent, modifier = Modifier.size(72.dp))
         Spacer(Modifier.height(FlowTheme.spacing.lg))
-        Text("Guardado en la galería", style = MaterialTheme.typography.titleMedium)
+        Text("Guardado en tu dispositivo", style = MaterialTheme.typography.titleMedium)
         Text(formatBytes(phase.sizeBytes), color = FlowColors.TextSecondary)
         Spacer(Modifier.height(FlowTheme.spacing.xl))
         Button(onClick = {
             val send = Intent(Intent.ACTION_SEND).apply {
-                type = "video/mp4"
+                type = context.contentResolver.getType(phase.uri) ?: "*/*"
                 putExtra(Intent.EXTRA_STREAM, phase.uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            context.startActivity(Intent.createChooser(send, "Compartir video"))
+            context.startActivity(Intent.createChooser(send, "Compartir"))
         }) {
             Icon(Icons.Rounded.Share, contentDescription = null)
             Spacer(Modifier.size(FlowTheme.spacing.sm))
