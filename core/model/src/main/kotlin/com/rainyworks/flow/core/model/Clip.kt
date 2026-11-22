@@ -46,6 +46,15 @@ data class Clip(
     val audioEffects: AudioEffects = AudioEffects(),
     /** Source frame shown for the whole clip (freeze frame), in source time. */
     val freezeAtUs: Long? = null,
+    /** Entrance animation of a visual clip (photo, video, overlay, text, subtitle). */
+    val enterAnimation: ClipAnimation? = null,
+    /** Exit animation of a visual clip. */
+    val exitAnimation: ClipAnimation? = null,
+    /**
+     * Set when [media] is a reversed copy generated from this original. Kept so reversing
+     * again restores the original instead of reversing the copy.
+     */
+    val originalMedia: MediaRef? = null,
 ) {
     init {
         require(trimOutUs > trimInUs) { "Clip $id has a non-positive source range" }

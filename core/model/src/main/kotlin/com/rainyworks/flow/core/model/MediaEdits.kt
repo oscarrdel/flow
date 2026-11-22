@@ -306,4 +306,39 @@ object MediaEdits {
     /** Sets the easing of every motion keyframe at [relativeUs]. */
     fun setMotionEasing(project: Project, clipId: String, relativeUs: Long, easing: Easing): Project =
         MOTION_PROPERTIES.fold(project) { acc, property -> setKeyframeEasing(acc, clipId, property, relativeUs, easing) }
+
+    fun setEnterAnimation(project: Project, clipId: String, animation: ClipAnimation?): Project =
+        Edits.updateClip(project, clipId) { it.copy(enterAnimation = animation?.clamped()) }
+
+    fun setExitAnimation(project: Project, clipId: String, animation: ClipAnimation?): Project =
+        Edits.updateClip(project, clipId) { it.copy(exitAnimation = animation?.clamped()) }
+
+    private fun ClipAnimation.clamped() =
+        copy(durationUs = durationUs.coerceIn(ClipAnimations.MIN_DURATION_US, ClipAnimations.MAX_DURATION_US))
+
+    /** True when the clip currently plays a reversed copy of its media. */
+    fun isReversed(clip: Clip): Boolean = clip.originalMedia != null
+
+    /**
+     * Swaps a clip to its reversed copy (or back to the original). The used part of the
+     * source is mirrored, so the clip shows the same footage backwards with the same length;
+     * a speed curve is mirrored too. Keyframes are timeline-relative and stay as they are.
+     */
+    fun swapReversed(project: Project, clipId: String, replacement: MediaRef): Project =
+        Edits.updateClip(project, clipId) { clip ->
+            val current = clip.media ?: return@updateClip clip
+            val duration = current.durationUs.takeIf { it > 0L } ?: return@updateClip clip
+            val restoring = clip.originalMedia != null
+            clip.copy(
+                media = replacement,
+                originalMedia = if (restoring) null else current,
+                trimInUs = (duration - clip.trimOutUs).coerceAtLeast(0L),
+                trimOutUs = (duration - clip.trimInUs).coerceAtMost(duration),
+                speedCurve = clip.speedCurve?.let { curve ->
+                    curve.copy(points = curve.points.map { it.copy(position = 1f - it.position) }.sortedBy { it.position })
+                },
+                freezeAtUs = clip.freezeAtUs?.let { duration - it },
+                reversed = false,
+            )
+        }
 }
