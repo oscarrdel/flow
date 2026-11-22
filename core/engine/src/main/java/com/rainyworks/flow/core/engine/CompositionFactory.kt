@@ -27,11 +27,14 @@ import com.rainyworks.flow.core.engine.compositing.MainRolls
 import com.rainyworks.flow.core.engine.effects.VisualEffects
 import com.rainyworks.flow.core.engine.speed.CurveSpeedProvider
 import com.rainyworks.flow.core.engine.compositing.addCanvasGap
+import com.rainyworks.flow.core.engine.background.CanvasFill
+import com.rainyworks.flow.core.engine.background.withBlurredPresentation
 import com.rainyworks.flow.core.engine.compositing.clipCropEffects
 import com.rainyworks.flow.core.engine.compositing.clipVideoEffects
 import com.rainyworks.flow.core.engine.color.LutCache
 import com.rainyworks.flow.core.engine.text.TextOverlays
 import com.rainyworks.flow.core.engine.text.TextRenderer
+import com.rainyworks.flow.core.model.CanvasBackground
 import com.rainyworks.flow.core.model.Clip
 import com.rainyworks.flow.core.model.ClipKind
 import com.rainyworks.flow.core.model.MediaRef
@@ -68,7 +71,16 @@ object CompositionFactory {
         // Media3 dibuja la primera secuencia de video encima de las siguientes.
         val hasVideoLayers = overlays.isNotEmpty() || rolls != null
         val sequences = overlays.map { sequence(it, durationUs, canvas, settings.frameRate, hasVideoLayers) }.toMutableList()
-        mainLayers.forEach { sequences += sequence(it, durationUs, canvas, settings.frameRate, hasVideoLayers) }
+        val background = project.canvas.background
+        // A blurred backdrop is drawn per main-track picture, behind the sharp one.
+        val blurredIds = if (background is CanvasBackground.Blur) {
+            project.mainTrack.clips.filter { it.hasPicture }.map { it.id }.toSet()
+        } else emptySet()
+        mainLayers.forEach { track ->
+            val main = sequence(track, durationUs, canvas, settings.frameRate, hasVideoLayers)
+            sequences += if (blurredIds.isEmpty()) main
+            else main.withBlurredPresentation(canvas, (background as CanvasBackground.Blur).radius, blurredIds)
+        }
         project.tracks.filter {
             (it.kind == TrackKind.AUDIO || (it.kind == TrackKind.OVERLAY && it !in overlays)) &&
                 !it.hidden && it.clips.any(it::isAudible)
@@ -80,6 +92,11 @@ object CompositionFactory {
         val finalEffects = buildList<Effect> {
             layers.effect?.let(::add)
             add(fit(canvas))
+            // Gaps render as opaque black frames, so the fill replaces them where nothing is visible.
+            val pictureTracks = (overlays + project.mainTrack).filter { !it.hidden }
+            add(CanvasFill(background, canvas) { timeUs ->
+                pictureTracks.any { track -> track.clips.any { it.hasPicture && it.contains(timeUs) } }
+            })
             addAll(VisualEffects.forLayers(project))
             if (textOverlays.isNotEmpty()) add(OverlayEffect(textOverlays))
         }

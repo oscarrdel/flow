@@ -63,7 +63,8 @@ private class AlphaOutput(private val flattenOnBlack: Boolean) : GlEffect {
 /**
  * Complete visible-item chain for Flow's Bitmap and decoded-video inputs. Bitmap uploads
  * carry premultiplied RGB, while grading and key selection operate on straight color.
- * Presentation resamples premultiplied pixels. A single-layer movie flattens onto black.
+ * Presentation resamples premultiplied pixels. A single layer keeps that representation
+ * for the canvas fill. The native multi-input compositor expects straight alpha instead.
  */
 @OptIn(UnstableApi::class)
 fun clipVideoEffects(
@@ -79,9 +80,7 @@ fun clipVideoEffects(
     addAll(matte)
     if (bitmap && colorEffects.isNotEmpty() && matte.isEmpty()) add(AlphaOutput(flattenOnBlack = false))
     add(presentation)
-    if (bitmap || matte.isNotEmpty()) {
-        add(if (hasVideoLayers) StraightAlphaForMedia3 else AlphaOutput(flattenOnBlack = true))
-    }
+    if (hasVideoLayers && (bitmap || matte.isNotEmpty())) add(StraightAlphaForMedia3)
 }
 
 /** Keep the input texture size stable at a cut from a picture to a generated video gap. */
