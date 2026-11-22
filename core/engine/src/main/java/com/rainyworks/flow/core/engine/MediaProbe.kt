@@ -15,12 +15,26 @@ import java.io.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.rainyworks.flow.core.engine.gif.GifAnimationProxy
 
 class MediaProbe(context: Context) {
     private val app = context.applicationContext
     private val resolver get() = app.contentResolver
 
     suspend fun probe(uri: Uri): MediaRef? = withContext(Dispatchers.IO) {
+        val media = probeFile(uri) ?: return@withContext null
+        if (media.type != MediaType.GIF || media.durationUs <= 0L) return@withContext media
+        // Animated GIFs get a video copy so they move; a failure keeps the still first frame.
+        try {
+            GifAnimationProxy(app).withAnimation(media)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            media
+        }
+    }
+
+    private fun probeFile(uri: Uri): MediaRef? =
         readMediaOrNull {
             val (name, size) = fileInfo(uri)
             val extension = name.substringAfterLast('.', "").lowercase()
@@ -55,7 +69,6 @@ class MediaProbe(context: Context) {
                 )
             }
         }
-    }
 
     private fun fileInfo(uri: Uri): Pair<String, Long> {
         val file = uri.path?.takeIf { uri.scheme == ContentResolver.SCHEME_FILE }?.let(::File)

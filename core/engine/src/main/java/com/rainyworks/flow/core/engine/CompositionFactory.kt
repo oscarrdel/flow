@@ -28,6 +28,7 @@ import com.rainyworks.flow.core.engine.effects.VisualEffects
 import com.rainyworks.flow.core.engine.speed.CurveSpeedProvider
 import com.rainyworks.flow.core.engine.compositing.addCanvasGap
 import com.rainyworks.flow.core.engine.background.CanvasFill
+import com.rainyworks.flow.core.engine.gif.UnpackAlphaEffect
 import com.rainyworks.flow.core.engine.background.withBlurredPresentation
 import com.rainyworks.flow.core.engine.compositing.clipCropEffects
 import com.rainyworks.flow.core.engine.compositing.clipVideoEffects
@@ -145,7 +146,18 @@ object CompositionFactory {
             if (!audible && !visible) continue
             require(clip.startUs >= cursorUs) { "Hay clips superpuestos en la misma pista." }
             if (clip.startUs > cursorUs) gap(sequence, types, clip.startUs - cursorUs, canvas)
-            sequence.addItem(editedItem(clip, media, fps, audible, visible, fit(canvas), hasVideoLayers))
+            val animation = media.animationUri?.takeIf { visible && media.type == MediaType.GIF && media.animationDurationUs > 0 }
+            if (animation != null) {
+                // The video copy holds whole loops; longer clips repeat it.
+                var remainingUs = clip.durationUs
+                while (remainingUs > 0) {
+                    val partUs = minOf(remainingUs, media.animationDurationUs)
+                    sequence.addItem(animatedGifItem(clip, media, animation, partUs, fps, fit(canvas), hasVideoLayers))
+                    remainingUs -= partUs
+                }
+            } else {
+                sequence.addItem(editedItem(clip, media, fps, audible, visible, fit(canvas), hasVideoLayers))
+            }
             cursorUs = clip.endUs
         }
         if (cursorUs < durationUs) gap(sequence, types, durationUs - cursorUs, canvas)
@@ -155,6 +167,42 @@ object CompositionFactory {
     /** Video-only sequences keep a canvas-sized texture across gaps, as the layer compositor expects. */
     private fun gap(sequence: EditedMediaItemSequence.Builder, types: Set<Int>, durationUs: Long, canvas: Size) {
         if (types == setOf(C.TRACK_TYPE_VIDEO)) sequence.addCanvasGap(durationUs, canvas) else sequence.addGap(durationUs)
+    }
+
+    private fun animatedGifItem(
+        clip: Clip,
+        media: MediaRef,
+        animationUri: String,
+        durationUs: Long,
+        fps: Int,
+        presentation: Presentation,
+        hasVideoLayers: Boolean,
+    ): EditedMediaItem {
+        val item = MediaItem.Builder()
+            .setUri(animationUri)
+            .setMediaId(clip.id)
+            .setClippingConfiguration(
+                MediaItem.ClippingConfiguration.Builder().setStartPositionUs(0L).setEndPositionUs(durationUs).build(),
+            )
+            .build()
+        val video = buildList<Effect> {
+            add(UnpackAlphaEffect)
+            addAll(clipCropEffects(clip))
+            addAll(
+                clipVideoEffects(
+                    clip,
+                    ColorEffects.forGrade(clip.color, LutCache::load) + VisualEffects.forClip(clip),
+                    presentation,
+                    hasVideoLayers,
+                ),
+            )
+        }
+        return EditedMediaItem.Builder(item)
+            .setDurationUs(media.animationDurationUs)
+            .setFrameRate(fps)
+            .setRemoveAudio(true)
+            .setEffects(Effects(emptyList(), video))
+            .build()
     }
 
     private fun editedItem(
