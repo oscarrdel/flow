@@ -87,6 +87,35 @@ class TransitionExportTest {
     }
 
     @Test
+    fun cropKeepsOnlyTheSelectedPart() {
+        // Left half red, right half blue; keeping the left half must show only red.
+        val file = File(context.cacheDir, "halves.png")
+        Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888).apply {
+            for (x in 0 until 64) for (y in 0 until 64) setPixel(x, y, if (x < 32) Color.RED else Color.BLUE)
+        }.also { bmp -> file.outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) } }
+        val media = MediaRef(Uri.fromFile(file).toString(), MediaType.IMAGE, width = 64, height = 64, mimeType = "image/png")
+        var p = ProjectFactory.create("t", 0L)
+        p = p.copy(canvas = p.canvas.copy(aspectRatio = AspectRatio.R1_1, followFirstClip = false))
+        p = Edits.insertIntoMain(p, listOf(ProjectFactory.clipFor(media, imageDurationUs = 1_000_000L)))
+        val id = p.mainTrack.clips.single().id
+        p = Edits.updateClip(p, id) {
+            it.copy(transform = com.rainyworks.flow.core.model.Transform(crop = com.rainyworks.flow.core.model.CropRect(0f, 0f, 0.5f, 1f)))
+        }
+        val retriever = MediaMetadataRetriever()
+        try {
+            retriever.setDataSource(render(p).absolutePath)
+            val frame = retriever.getFrameAtTime(500_000, MediaMetadataRetriever.OPTION_CLOSEST)!!
+            // The 1:2 cropped picture is fitted in the middle half of the square canvas.
+            val inside = frame.getPixel((frame.width * 0.65f).toInt(), frame.height / 2)
+            val outside = frame.getPixel((frame.width * 0.9f).toInt(), frame.height / 2)
+            assertTrue("inside ${Integer.toHexString(inside)}", Color.red(inside) > 200 && Color.blue(inside) < 60)
+            assertTrue("outside ${Integer.toHexString(outside)}", Color.red(outside) < 40 && Color.blue(outside) < 40)
+        } finally {
+            retriever.release()
+        }
+    }
+
+    @Test
     fun singleMovedClipExports() {
         var p = ProjectFactory.create("t", 0L)
         p = p.copy(canvas = p.canvas.copy(aspectRatio = AspectRatio.R1_1, followFirstClip = false))

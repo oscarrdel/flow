@@ -27,6 +27,7 @@ import com.rainyworks.flow.core.engine.compositing.MainRolls
 import com.rainyworks.flow.core.engine.effects.VisualEffects
 import com.rainyworks.flow.core.engine.speed.CurveSpeedProvider
 import com.rainyworks.flow.core.engine.compositing.addCanvasGap
+import com.rainyworks.flow.core.engine.compositing.clipCropEffects
 import com.rainyworks.flow.core.engine.compositing.clipVideoEffects
 import com.rainyworks.flow.core.engine.color.LutCache
 import com.rainyworks.flow.core.engine.text.TextOverlays
@@ -167,7 +168,7 @@ object CompositionFactory {
                 Effects(
                     processors,
                     if (visible) {
-                        clipVideoEffects(
+                        clipCropEffects(clip) + clipVideoEffects(
                             clip,
                             ColorEffects.forGrade(clip.color, LutCache::load) + VisualEffects.forClip(clip),
                             presentation,
