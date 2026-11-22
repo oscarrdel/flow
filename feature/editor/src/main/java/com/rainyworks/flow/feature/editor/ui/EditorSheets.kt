@@ -594,12 +594,36 @@ private fun SpeedSheetPanel(
 
     val presets = remember { listOf(0.25f, 0.5f, 1f, 2f, 4f, 10f) }
 
+    var curveTab by remember(clipId) { mutableStateOf(currentClip?.speedCurve != null) }
+    val canRamp = currentClip?.media?.type == com.rainyworks.flow.core.model.MediaType.VIDEO
+
     FlowBottomPanel(
         title = "Velocidad",
-        subtitle = "Escala logarítmica (0.1x – 10x)",
+        subtitle = if (curveTab) "Cambia la velocidad a lo largo del clip" else "Escala logarítmica (0.1x – 10x)",
         onDismiss = { onAction(EditorAction.DismissSheet) },
         modifier = modifier,
     ) {
+        if (canRamp) {
+            Row(horizontalArrangement = Arrangement.spacedBy(spacing.sm)) {
+                FilterChip(
+                    selected = !curveTab,
+                    onClick = { curveTab = false },
+                    label = { Text("Normal", style = FlowTypography.labelMedium) },
+                    colors = speedTabColors(),
+                )
+                FilterChip(
+                    selected = curveTab,
+                    onClick = { curveTab = true },
+                    label = { Text("Curva", style = FlowTypography.labelMedium) },
+                    colors = speedTabColors(),
+                )
+            }
+            Spacer(Modifier.height(spacing.xs))
+        }
+        if (curveTab && canRamp && currentClip != null) {
+            SpeedCurveSection(clip = currentClip, onAction = onAction)
+            return@FlowBottomPanel
+        }
         FlowLabeledSlider(
             label = "Multiplicador",
             valueText = formatSpeedLabel(displayedSpeed),
@@ -668,6 +692,14 @@ private fun SpeedSheetPanel(
         }
     }
 }
+
+@Composable
+private fun speedTabColors() = FilterChipDefaults.filterChipColors(
+    containerColor = FlowColors.Slate,
+    labelColor = FlowColors.TextPrimary,
+    selectedContainerColor = FlowColors.AccentDim,
+    selectedLabelColor = FlowColors.Accent,
+)
 
 @Composable
 private fun VolumeSheetPanel(
@@ -1056,7 +1088,7 @@ private fun logFractionToSpeed(fraction: Float): Float {
     return ((raw * 100f).roundToInt() / 100f).coerceIn(MIN_SHEET_SPEED, MAX_SHEET_SPEED)
 }
 
-private fun formatSpeedLabel(speed: Float): String {
+internal fun formatSpeedLabel(speed: Float): String {
     return if (speed >= 2f && kotlin.math.abs(speed - speed.roundToInt()) < 0.05f) {
         "${speed.roundToInt()}x"
     } else {

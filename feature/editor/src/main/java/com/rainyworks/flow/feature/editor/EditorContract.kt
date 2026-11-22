@@ -104,6 +104,8 @@ sealed interface EditorAction {
     data class MoveToLayer(val clipId: String, val trackId: String, val startUs: Long) : EditorAction
 
     data class SetSpeed(val clipId: String, val speed: Float, val final: Boolean) : EditorAction
+    /** A speed ramp for the clip, or null to go back to its constant speed. */
+    data class SetSpeedCurve(val clipId: String, val curve: com.rainyworks.flow.core.model.SpeedCurve?) : EditorAction
     data class SetVolume(val clipId: String, val volume: Float, val final: Boolean) : EditorAction
     /** Direct manipulation on the preview or exact values from the transform panel. */
     data class SetTransform(val clipId: String, val transform: Transform, val final: Boolean) : EditorAction

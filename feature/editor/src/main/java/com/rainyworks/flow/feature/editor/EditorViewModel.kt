@@ -168,6 +168,7 @@ class EditorViewModel(
             is EditorAction.MoveToLayer -> current?.let {
                 apply(Edits.moveToLayer(it, action.clipId, action.trackId, action.startUs))
             }
+            is EditorAction.SetSpeedCurve -> current?.let { apply(Edits.setSpeedCurve(it, action.clipId, action.curve)) }
             is EditorAction.SetSpeed -> drag("speed-${action.clipId}", action.final) {
                 Edits.setSpeed(it, action.clipId, action.speed)
             }
