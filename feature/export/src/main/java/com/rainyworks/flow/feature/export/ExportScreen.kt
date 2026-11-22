@@ -38,6 +38,7 @@ import androidx.compose.material3.RangeSlider
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -54,6 +55,9 @@ import com.rainyworks.flow.core.engine.audio.AudioFormat
 import com.rainyworks.flow.core.engine.gif.GifSettings
 import com.rainyworks.flow.core.model.Timecode
 import java.util.Locale
+import kotlin.math.log10
+import kotlin.math.pow
+import kotlin.math.roundToInt
 
 @Composable
 fun ExportScreen(viewModel: ExportViewModel, onDone: () -> Unit, modifier: Modifier = Modifier) {
@@ -175,6 +179,13 @@ private fun VideoOptions(state: ExportUiState, viewModel: ExportViewModel) {
             ExportQuality.entries.forEach {
                 FilterChip(selected = state.quality == it, onClick = { viewModel.setQuality(it) }, label = { Text(it.label) })
             }
+        }
+        if (state.quality == ExportQuality.Custom) {
+            CustomBitrateSlider(
+                mbps = state.customVideoBitrateMbps,
+                recommendedMbps = state.recommendedVideoBitrateMbps,
+                onChange = viewModel::setCustomVideoBitrate,
+            )
         }
         Section("Códec") {
             FilterChip(
@@ -334,6 +345,52 @@ private fun ErrorPanel(message: String, onRetry: () -> Unit, modifier: Modifier)
         Button(onClick = onRetry) { Text("Volver a intentar") }
     }
 }
+
+@Composable
+private fun CustomBitrateSlider(
+    mbps: Float,
+    recommendedMbps: Float?,
+    onChange: (Float) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(FlowTheme.spacing.sm)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "Tasa de bits: ${formatMbps(mbps)}",
+                style = MaterialTheme.typography.titleSmall,
+            )
+            if (recommendedMbps != null) {
+                Text(
+                    "Recomendado: ${formatMbps(recommendedMbps)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = FlowColors.TextSecondary,
+                )
+            }
+        }
+        Slider(
+            value = mbpsToSlider(mbps),
+            onValueChange = { onChange(sliderToMbps(it)) },
+            valueRange = 0f..1f,
+        )
+    }
+}
+
+private fun mbpsToSlider(mbps: Float): Float =
+    (log10(mbps.coerceIn(MIN_CUSTOM_BITRATE_MBPS, MAX_CUSTOM_BITRATE_MBPS).toDouble()) / 2.0).toFloat()
+
+private fun sliderToMbps(position: Float): Float =
+    10.0.pow(position.coerceIn(0f, 1f).toDouble() * 2.0).toFloat()
+
+private fun formatMbps(mbps: Float): String =
+    if (mbps >= 10f) {
+        "${mbps.roundToInt()} Mbps"
+    } else {
+        val half = (mbps * 2f).roundToInt() / 2f
+        if (half % 1f == 0f) "${half.toInt()} Mbps" else String.format(Locale.US, "%.1f Mbps", half)
+    }
 
 private fun formatBytes(bytes: Long): String = when {
     bytes >= 1L shl 30 -> String.format(Locale.US, "%.2f GB", bytes / (1L shl 30).toDouble())

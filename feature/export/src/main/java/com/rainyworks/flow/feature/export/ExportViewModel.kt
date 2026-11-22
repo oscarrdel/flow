@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 enum class ExportResolution(val heightPx: Int, val label: String) {
     P480(480, "480p"),
@@ -30,6 +31,7 @@ enum class ExportQuality(val factor: Double, val label: String) {
     Low(0.5, "Baja"),
     Medium(1.0, "Media"),
     High(1.6, "Alta"),
+    Custom(1.0, "Personalizada"),
 }
 
 enum class ExportKind(val label: String) { Video("Video"), Gif("GIF"), Audio("Solo audio") }
@@ -46,6 +48,7 @@ data class ExportUiState(
     val resolution: ExportResolution = ExportResolution.P1080,
     val frameRate: Int = 30,
     val quality: ExportQuality = ExportQuality.Medium,
+    val customVideoBitrateMbps: Float = DEFAULT_CUSTOM_BITRATE_MBPS,
     val codec: VideoCodec = VideoCodec.H264,
     val kind: ExportKind = ExportKind.Video,
     val audioFormat: AudioFormat = AudioFormat.MP3,
@@ -59,6 +62,11 @@ data class ExportUiState(
     val phase: ExportPhase = ExportPhase.Configuring,
 ) {
     val hasEnoughSpace: Boolean get() = freeBytes == 0L || estimatedBytes * 11 / 10 < freeBytes
+
+    val recommendedVideoBitrateMbps: Float?
+        get() = project?.let {
+            ExportSettings(heightPx = resolution.heightPx, frameRate = frameRate, codec = codec).bitrate(it) / 1_000_000f
+        }
 }
 
 class ExportViewModel(
@@ -85,7 +93,19 @@ class ExportViewModel(
 
     fun setResolution(value: ExportResolution) = updateSettings { it.copy(resolution = value) }
     fun setFrameRate(value: Int) = updateSettings { it.copy(frameRate = value) }
-    fun setQuality(value: ExportQuality) = updateSettings { it.copy(quality = value) }
+    fun setQuality(value: ExportQuality) = updateSettings { state ->
+        if (value == ExportQuality.Custom && state.quality != ExportQuality.Custom) {
+            val initialMbps = state.project?.let { project ->
+                roundCustomBitrateMbps(state.settings(project).bitrate(project) / 1_000_000f)
+            } ?: state.customVideoBitrateMbps
+            state.copy(quality = value, customVideoBitrateMbps = initialMbps)
+        } else {
+            state.copy(quality = value)
+        }
+    }
+    fun setCustomVideoBitrate(mbps: Float) = updateSettings {
+        it.copy(customVideoBitrateMbps = roundCustomBitrateMbps(mbps))
+    }
     fun setCodec(value: VideoCodec) = updateSettings { it.copy(codec = value) }
     fun setKind(value: ExportKind) = updateSettings { it.copy(kind = value) }
     fun setAudioFormat(value: AudioFormat) = updateSettings { it.copy(audioFormat = value) }
@@ -138,7 +158,12 @@ class ExportViewModel(
 
     private fun ExportUiState.settings(project: Project): ExportSettings {
         val base = ExportSettings(heightPx = resolution.heightPx, frameRate = frameRate, codec = codec)
-        return base.copy(videoBitrate = (base.bitrate(project) * quality.factor).toInt().coerceAtLeast(256_000))
+        val videoBitrate = if (quality == ExportQuality.Custom) {
+            (customVideoBitrateMbps.toDouble() * 1_000_000).roundToInt().coerceAtLeast(256_000)
+        } else {
+            (base.bitrate(project) * quality.factor).toInt().coerceAtLeast(256_000)
+        }
+        return base.copy(videoBitrate = videoBitrate)
     }
 
     private fun ExportUiState.gifSettings() =
@@ -150,6 +175,19 @@ class ExportViewModel(
         StatFs(Environment.getExternalStorageDirectory().path).availableBytes
     }.getOrDefault(0L)
 
+}
+
+internal const val MIN_CUSTOM_BITRATE_MBPS = 1f
+internal const val MAX_CUSTOM_BITRATE_MBPS = 100f
+private const val DEFAULT_CUSTOM_BITRATE_MBPS = 8f
+
+internal fun roundCustomBitrateMbps(mbps: Float): Float {
+    val clamped = mbps.coerceIn(MIN_CUSTOM_BITRATE_MBPS, MAX_CUSTOM_BITRATE_MBPS)
+    return if (clamped < 10f) {
+        (clamped * 2f).roundToInt() / 2f
+    } else {
+        clamped.roundToInt().toFloat()
+    }
 }
 
 private const val MIN_GIF_US = 500_000L
