@@ -33,8 +33,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.em
+import com.rainyworks.flow.core.model.AnimatedProperty
 import com.rainyworks.flow.core.model.Clip
 import com.rainyworks.flow.core.model.ClipKind
+import com.rainyworks.flow.core.model.MediaEdits
 import com.rainyworks.flow.core.model.Project
 import com.rainyworks.flow.core.model.TextAnimationType
 import com.rainyworks.flow.core.model.TextContent
@@ -394,7 +396,8 @@ internal fun TextOverlayLayer(
             val content = clip.text ?: continue
             val placement = renderer.place(content, size)
             val motion = textMotionAt(content, now - clip.startUs, clip.durationUs)
-            val transform = clip.transform
+            val transform = clip.animatedTransformAt(now)
+            val opacity = MediaEdits.propertyValue(clip, AnimatedProperty.OPACITY, now).coerceIn(0f, 1f)
             drawTextContent(
                 renderer = renderer,
                 content = content,
@@ -407,7 +410,7 @@ internal fun TextOverlayLayer(
                 rotationDegrees = transform.rotationDegrees,
                 flipHorizontal = transform.flipHorizontal,
                 flipVertical = transform.flipVertical,
-                alpha = clip.opacity * motion.alpha * clip.fadeFactorAt(now),
+                alpha = opacity * motion.alpha * clip.fadeFactorAt(now),
                 reveal = motion.reveal,
             )
         }

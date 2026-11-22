@@ -151,6 +151,26 @@ internal fun EditorActiveSheet(
             onAction = onAction,
             modifier = modifier,
         )
+        EditorSheet.Chroma -> ChromaSheetPanel(
+            state = state,
+            onAction = onAction,
+            modifier = modifier,
+        )
+        EditorSheet.Blend -> BlendSheetPanel(
+            state = state,
+            onAction = onAction,
+            modifier = modifier,
+        )
+        EditorSheet.Mask -> MaskSheetPanel(
+            state = state,
+            onAction = onAction,
+            modifier = modifier,
+        )
+        EditorSheet.Keyframes -> KeyframesSheetPanel(
+            state = state,
+            onAction = onAction,
+            modifier = modifier,
+        )
     }
 }
 
@@ -198,7 +218,7 @@ private fun TransformSheetPanel(
     val clip = rememberSelectedClip(state)
     val clipId = clip?.id
     val enabled = clipId != null
-    val transform = clip?.transform ?: Transform()
+    val transform = clip?.animatedTransformAt(state.playheadUs) ?: Transform()
     val currentTransform by rememberUpdatedState(transform)
 
     fun emit(updated: Transform, final: Boolean) {

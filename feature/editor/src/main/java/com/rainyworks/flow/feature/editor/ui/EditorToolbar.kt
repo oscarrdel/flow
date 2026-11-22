@@ -47,6 +47,7 @@ import com.rainyworks.flow.core.designsystem.components.FlowToolButton
 import com.rainyworks.flow.core.designsystem.theme.FlowColors
 import com.rainyworks.flow.core.designsystem.theme.FlowTheme
 import com.rainyworks.flow.core.model.ClipKind
+import com.rainyworks.flow.core.model.TrackKind
 import com.rainyworks.flow.feature.editor.ClipTool
 import com.rainyworks.flow.feature.editor.EditorAction
 import com.rainyworks.flow.feature.editor.EditorSheet
@@ -55,7 +56,8 @@ import com.rainyworks.flow.feature.editor.GlobalTool
 /**
  * Contextual bottom toolbar switching between [GlobalTool] (no clip selected)
  * and [ClipTool] (a clip is selected, with a back button to deselect). Clip tools are
- * filtered by [selectedClipKind] so only the ones that apply to that media are offered.
+ * filtered by [selectedClipKind] and [selectedTrackKind] so only the ones that apply to
+ * that media and track are offered.
  */
 @Composable
 internal fun EditorBottomToolbar(
@@ -63,9 +65,12 @@ internal fun EditorBottomToolbar(
     selectedClipKind: ClipKind?,
     onAction: (EditorAction) -> Unit,
     modifier: Modifier = Modifier,
+    selectedTrackKind: TrackKind? = null,
 ) {
     val spacing = FlowTheme.spacing
-    val clipTools = remember(selectedClipKind) { clipToolsFor(selectedClipKind) }
+    val clipTools = remember(selectedClipKind, selectedTrackKind) {
+        clipToolsFor(selectedClipKind, selectedTrackKind)
+    }
 
     Row(
         modifier = modifier
@@ -171,10 +176,12 @@ private val VisualOnlyTools = setOf(
     ClipTool.Crop,
     ClipTool.Chroma,
     ClipTool.Mask,
+    ClipTool.Animation,
     ClipTool.Freeze,
     ClipTool.Filters,
     ClipTool.Adjust,
     ClipTool.EditText,
+    ClipTool.Blend,
 )
 
 private val TimedOnlyTools = setOf(
@@ -196,6 +203,7 @@ private val HiddenForTextTools = setOf(
     ClipTool.Crop,
     ClipTool.Mask,
     ClipTool.EditText,
+    ClipTool.Blend,
 )
 
 private val AdjustmentLayerTools = listOf(
@@ -206,12 +214,20 @@ private val AdjustmentLayerTools = listOf(
     ClipTool.Delete,
 )
 
-internal fun clipToolsFor(kind: ClipKind?): List<ClipTool> = when (kind) {
-    ClipKind.AUDIO -> ClipTool.entries.filterNot { it in VisualOnlyTools }
-    ClipKind.IMAGE -> ClipTool.entries.filterNot { it in TimedOnlyTools || it == ClipTool.EditText }
-    ClipKind.TEXT -> listOf(ClipTool.EditText) + ClipTool.entries.filterNot { it in HiddenForTextTools }
-    ClipKind.ADJUSTMENT -> AdjustmentLayerTools
-    else -> ClipTool.entries.filterNot { it == ClipTool.EditText }
+internal fun clipToolsFor(
+    kind: ClipKind?,
+    trackKind: TrackKind? = null,
+): List<ClipTool> {
+    val isOverlay = trackKind == TrackKind.OVERLAY
+    val base = when (kind) {
+        ClipKind.AUDIO -> ClipTool.entries.filterNot { it in VisualOnlyTools }
+        ClipKind.IMAGE -> ClipTool.entries.filterNot { it in TimedOnlyTools || it == ClipTool.EditText }
+        ClipKind.TEXT -> listOf(ClipTool.EditText) + ClipTool.entries.filterNot { it in HiddenForTextTools }
+        ClipKind.ADJUSTMENT -> AdjustmentLayerTools
+        ClipKind.EFFECT -> listOf(ClipTool.Split, ClipTool.Duplicate, ClipTool.Delete)
+        else -> ClipTool.entries.filterNot { it == ClipTool.EditText }
+    }
+    return if (isOverlay) base else base.filterNot { it == ClipTool.Blend }
 }
 
 private fun ClipTool.spanishLabel(): String = when (this) {
@@ -232,6 +248,7 @@ private fun ClipTool.spanishLabel(): String = when (this) {
     ClipTool.Filters -> "Filtros"
     ClipTool.Adjust -> "Ajustes"
     ClipTool.EditText -> "Editar"
+    ClipTool.Blend -> "Fusión"
 }
 
 private fun ClipTool.icon(): ImageVector = when (this) {
@@ -252,4 +269,5 @@ private fun ClipTool.icon(): ImageVector = when (this) {
     ClipTool.Filters -> Icons.Rounded.AutoFixHigh
     ClipTool.Adjust -> Icons.Rounded.Tune
     ClipTool.EditText -> Icons.Rounded.Edit
+    ClipTool.Blend -> Icons.Rounded.Layers
 }

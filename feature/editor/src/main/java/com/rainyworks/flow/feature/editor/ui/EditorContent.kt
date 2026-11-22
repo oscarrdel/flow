@@ -181,8 +181,21 @@ fun EditorContent(
                     showSafeZones = showSafeZones && isVerticalCanvas,
                     onAction = dispatch,
                     textRenderer = textRenderer,
+                    playheadUs = playheadProvider,
+                    editMask = state.activeSheet == EditorSheet.Mask,
                     modifier = Modifier.fillMaxSize(),
                 )
+                val pickingClipId = state.pickingChromaFor
+                if (pickingClipId != null) {
+                    ChromaEyedropperOverlay(
+                        clipId = pickingClipId,
+                        project = state.project,
+                        playheadUs = state.playheadUs,
+                        mediaSource = mediaSource,
+                        onAction = dispatch,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
             },
         )
     }
@@ -230,6 +243,7 @@ fun EditorContent(
             EditorBottomToolbar(
                 selectedClipId = state.selectedClipId,
                 selectedClipKind = selectedClip?.kind,
+                selectedTrackKind = selection?.first?.kind,
                 onAction = dispatch,
             )
         }

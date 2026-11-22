@@ -4,7 +4,11 @@ import androidx.compose.ui.graphics.ImageBitmap
 import com.rainyworks.flow.core.model.AspectRatio
 import com.rainyworks.flow.core.model.CanvasBackground
 import com.rainyworks.flow.core.model.MediaRef
+import com.rainyworks.flow.core.model.BlendMode
+import com.rainyworks.flow.core.model.ChromaKey
 import com.rainyworks.flow.core.model.ColorGrade
+import com.rainyworks.flow.core.model.Easing
+import com.rainyworks.flow.core.model.Mask
 import com.rainyworks.flow.core.model.Project
 import com.rainyworks.flow.core.model.SubtitleCue
 import com.rainyworks.flow.core.model.TextContent
@@ -24,6 +28,8 @@ data class EditorUiState(
     val fullscreenPreview: Boolean = false,
     val fps: Int = 30,
     val audioPanelOpen: Boolean = false,
+    /** When set, the next tap on the preview samples a color for this clip's chroma key. */
+    val pickingChromaFor: String? = null,
     /** Fonts the user imported, as (display name, font id/URI) pairs. */
     val customFonts: List<Pair<String, String>> = emptyList(),
     val voiceOver: VoiceOverUiState? = null,
@@ -50,6 +56,7 @@ data class VoiceOverUiState(
 enum class EditorSheet {
     Speed, Volume, AspectRatio, Background, Transform, Crop, Opacity,
     Filters, Adjust, Curves, Hsl, Text, Subtitles,
+    Chroma, Blend, Mask, Keyframes,
 }
 
 /** Global tools shown in the bottom bar when no clip is selected. */
@@ -58,7 +65,7 @@ enum class GlobalTool { Edit, Audio, Text, Overlay, Effects, Filters, Format, Ca
 /** Tools shown in the bottom bar when a clip is selected. */
 enum class ClipTool {
     Split, Speed, Volume, Transform, Opacity, Duplicate, Delete, Replace, Freeze, Reverse, Crop, Chroma, Mask, Animation,
-    Filters, Adjust, EditText,
+    Filters, Adjust, EditText, Blend,
 }
 
 sealed interface EditorAction {
@@ -114,6 +121,21 @@ sealed interface EditorAction {
     data class UpdateSubtitle(val clipId: String, val cue: SubtitleCue) : EditorAction
     data object ImportSrt : EditorAction
     data object ExportSrt : EditorAction
+
+    /** Null removes the chroma key. */
+    data class SetChromaKey(val clipId: String, val chroma: ChromaKey?, val final: Boolean) : EditorAction
+    /** Starts picking the key color by tapping the preview; the result arrives as SetChromaKey. */
+    data class PickChromaColor(val clipId: String) : EditorAction
+    data class ChromaColorPicked(val clipId: String, val argb: Long) : EditorAction
+    data class SetBlendMode(val clipId: String, val mode: BlendMode) : EditorAction
+    /** Null removes the mask. */
+    data class SetMask(val clipId: String, val mask: Mask?, val final: Boolean) : EditorAction
+
+    /** Adds or replaces a keyframe for [property] at the playhead with the clip's current value. */
+    data class ToggleKeyframe(val clipId: String, val property: String) : EditorAction
+    data class SetKeyframeEasing(val clipId: String, val property: String, val timeUs: Long, val easing: Easing) : EditorAction
+    /** Jumps the playhead to the previous/next keyframe of the clip. */
+    data class JumpToKeyframe(val clipId: String, val forward: Boolean) : EditorAction
 
     data class SetAudioPanel(val open: Boolean) : EditorAction
     data object AddAudioFile : EditorAction

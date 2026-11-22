@@ -61,6 +61,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -83,6 +84,7 @@ import com.rainyworks.flow.core.designsystem.theme.TimecodeStyle
 import com.rainyworks.flow.core.model.Clip
 import com.rainyworks.flow.core.model.Edits
 import com.rainyworks.flow.core.model.Marker
+import com.rainyworks.flow.core.model.MediaEdits
 import com.rainyworks.flow.core.model.Project
 import com.rainyworks.flow.core.model.Timecode
 import com.rainyworks.flow.core.model.Track
@@ -826,6 +828,53 @@ private fun TimelineClipItem(
                     tint = FlowColors.Error,
                     modifier = Modifier.size(12.dp),
                 )
+            }
+        }
+
+        // Keyframe diamonds on the selected clip; tapping one seeks to that keyframe time.
+        if (isSelected) {
+            val keyframeTimes = remember(clip.keyframes, clip.startUs) {
+                MediaEdits.keyframeTimes(clip)
+            }
+            val hitSize = 18.dp
+            val halfHit = 9.dp
+            for (kfTimeUs in keyframeTimes) {
+                if (kfTimeUs in clip.startUs..clip.endUs) {
+                    key(kfTimeUs) {
+                        val xPx = (((kfTimeUs - clip.startUs).toDouble() / Timecode.US_PER_SECOND) * ppsPx).toFloat()
+                        val xDp = with(density) { xPx.toDp() }
+                        val maxOffset = (clipWidthDp - hitSize).coerceAtLeast(0.dp)
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.CenterStart)
+                                .offset(x = (xDp - halfHit).coerceIn(0.dp, maxOffset))
+                                .size(hitSize)
+                                .clickable {
+                                    onAction(EditorAction.Seek(kfTimeUs, final = true))
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Canvas(modifier = Modifier.size(10.dp)) {
+                                val r = size.minDimension / 2f - 1.dp.toPx()
+                                val cx = size.width / 2f
+                                val cy = size.height / 2f
+                                val diamond = Path().apply {
+                                    moveTo(cx, cy - r)
+                                    lineTo(cx + r, cy)
+                                    lineTo(cx, cy + r)
+                                    lineTo(cx - r, cy)
+                                    close()
+                                }
+                                drawPath(
+                                    path = diamond,
+                                    color = Color.Black.copy(alpha = 0.65f),
+                                    style = Stroke(width = 2.dp.toPx()),
+                                )
+                                drawPath(path = diamond, color = FlowColors.Keyframe)
+                            }
+                        }
+                    }
+                }
             }
         }
 

@@ -11,6 +11,7 @@ import com.rainyworks.flow.core.data.ProjectRepository
 import com.rainyworks.flow.core.engine.MediaProbe
 import com.rainyworks.flow.core.engine.PreviewController
 import com.rainyworks.flow.core.engine.ThumbnailProvider
+import com.rainyworks.flow.core.model.ChromaKey
 import com.rainyworks.flow.core.model.ClipKind
 import com.rainyworks.flow.core.model.CubeLut
 import com.rainyworks.flow.core.model.Srt
@@ -166,7 +167,7 @@ class EditorViewModel(
                 Edits.updateClip(project, action.clipId) { it.copy(volume = action.volume.coerceIn(0f, 2f)) }
             }
             is EditorAction.SetTransform -> drag("transform-${action.clipId}", action.final) {
-                MediaEdits.setTransform(it, action.clipId, action.transform)
+                MediaEdits.setTransformAt(it, action.clipId, action.transform, _state.value.playheadUs)
             }
             is EditorAction.SetOpacity -> drag("opacity-${action.clipId}", action.final) {
                 MediaEdits.setOpacity(it, action.clipId, action.opacity)
@@ -214,6 +215,35 @@ class EditorViewModel(
                 } else {
                     viewModelScope.launch { _events.send(EditorEvent.CreateSrt("${project.name}.srt")) }
                 }
+            }
+            is EditorAction.SetChromaKey -> drag("chroma-${action.clipId}", action.final) { project ->
+                Edits.updateClip(project, action.clipId) { it.copy(chromaKey = action.chroma) }
+            }
+            is EditorAction.PickChromaColor -> _state.update { it.copy(pickingChromaFor = action.clipId) }
+            is EditorAction.ChromaColorPicked -> current?.let { project ->
+                val clip = project.findClip(action.clipId)?.second
+                val chroma = (clip?.chromaKey ?: ChromaKey()).copy(argb = action.argb)
+                apply(Edits.updateClip(project, action.clipId) { it.copy(chromaKey = chroma) })
+                _state.update { it.copy(pickingChromaFor = null) }
+            }
+            is EditorAction.SetBlendMode -> current?.let { project ->
+                apply(Edits.updateClip(project, action.clipId) { it.copy(blendMode = action.mode) })
+            }
+            is EditorAction.SetMask -> drag("mask-${action.clipId}", action.final) { project ->
+                Edits.updateClip(project, action.clipId) { it.copy(mask = action.mask) }
+            }
+            is EditorAction.ToggleKeyframe -> current?.let {
+                apply(MediaEdits.toggleKeyframe(it, action.clipId, action.property, _state.value.playheadUs))
+            }
+            is EditorAction.SetKeyframeEasing -> current?.let {
+                val clip = it.findClip(action.clipId)?.second ?: return@let
+                apply(MediaEdits.setKeyframeEasing(it, action.clipId, action.property, action.timeUs - clip.startUs, action.easing))
+            }
+            is EditorAction.JumpToKeyframe -> current?.findClip(action.clipId)?.second?.let { clip ->
+                val playhead = _state.value.playheadUs
+                val times = MediaEdits.keyframeTimes(clip)
+                val target = if (action.forward) times.firstOrNull { it > playhead + 1_000 } else times.lastOrNull { it < playhead - 1_000 }
+                if (target != null) seek(target, final = true)
             }
             is EditorAction.SetAudioPanel -> _state.update { it.copy(audioPanelOpen = action.open, activeSheet = null) }
             EditorAction.AddAudioFile -> {
@@ -482,6 +512,10 @@ class EditorViewModel(
             ClipTool.Filters -> _state.update { it.copy(activeSheet = EditorSheet.Filters) }
             ClipTool.Adjust -> _state.update { it.copy(activeSheet = EditorSheet.Adjust) }
             ClipTool.EditText -> _state.update { it.copy(activeSheet = EditorSheet.Text) }
+            ClipTool.Chroma -> _state.update { it.copy(activeSheet = EditorSheet.Chroma) }
+            ClipTool.Mask -> _state.update { it.copy(activeSheet = EditorSheet.Mask) }
+            ClipTool.Blend -> _state.update { it.copy(activeSheet = EditorSheet.Blend) }
+            ClipTool.Animation -> _state.update { it.copy(activeSheet = EditorSheet.Keyframes) }
             ClipTool.Duplicate -> apply(Edits.duplicate(project, clipId))
             ClipTool.Delete -> {
                 apply(Edits.delete(project, clipId))

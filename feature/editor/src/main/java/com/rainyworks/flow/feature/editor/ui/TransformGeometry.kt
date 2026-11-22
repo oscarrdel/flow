@@ -2,7 +2,11 @@ package com.rainyworks.flow.feature.editor.ui
 
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import com.rainyworks.flow.core.model.AnimatedProperty
+import com.rainyworks.flow.core.model.Clip
 import com.rainyworks.flow.core.model.CropRect
+import com.rainyworks.flow.core.model.Mask
+import com.rainyworks.flow.core.model.MediaEdits
 import com.rainyworks.flow.core.model.MediaRef
 import com.rainyworks.flow.core.model.Transform
 import kotlin.math.PI
@@ -15,6 +19,31 @@ internal const val MIN_TRANSFORM_SCALE = 0.1f
 internal const val MAX_TRANSFORM_SCALE = 5f
 private const val MIN_CROP_SIZE = 0.08f
 private const val CROP_EPSILON = 0.001f
+
+/**
+ * Resolves the clip's [Transform] at [timelineUs] by evaluating any keyframe animations
+ * on offsetX, offsetY, scale and rotationDegrees.
+ */
+internal fun Clip.animatedTransformAt(timelineUs: Long): Transform = transform.copy(
+    offsetX = MediaEdits.propertyValue(this, AnimatedProperty.OFFSET_X, timelineUs),
+    offsetY = MediaEdits.propertyValue(this, AnimatedProperty.OFFSET_Y, timelineUs),
+    scale = MediaEdits.propertyValue(this, AnimatedProperty.SCALE, timelineUs),
+    rotationDegrees = MediaEdits.propertyValue(this, AnimatedProperty.ROTATION, timelineUs),
+)
+
+/**
+ * Resolves the clip's [Mask] at [timelineUs] by evaluating any keyframe animations
+ * on the mask offset, scale, rotation and feather.
+ */
+internal fun Clip.animatedMaskAt(timelineUs: Long): Mask? = mask?.let { m ->
+    m.copy(
+        offsetX = MediaEdits.propertyValue(this, AnimatedProperty.MASK_OFFSET_X, timelineUs),
+        offsetY = MediaEdits.propertyValue(this, AnimatedProperty.MASK_OFFSET_Y, timelineUs),
+        scale = MediaEdits.propertyValue(this, AnimatedProperty.MASK_SCALE, timelineUs),
+        rotationDegrees = MediaEdits.propertyValue(this, AnimatedProperty.MASK_ROTATION, timelineUs),
+        feather = MediaEdits.propertyValue(this, AnimatedProperty.MASK_FEATHER, timelineUs),
+    )
+}
 
 /**
  * On-canvas placement of a clip: a rectangle of [width] x [height] centered at [center],
