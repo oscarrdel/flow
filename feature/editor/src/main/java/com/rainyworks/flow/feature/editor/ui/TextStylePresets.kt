@@ -4,6 +4,7 @@ import com.rainyworks.flow.core.model.TextAnimation
 import com.rainyworks.flow.core.model.TextAnimationType
 import com.rainyworks.flow.core.model.TextBackground
 import com.rainyworks.flow.core.model.TextContent
+import com.rainyworks.flow.core.model.TextAlign
 import com.rainyworks.flow.core.model.TextFill
 import com.rainyworks.flow.core.model.TextShadow
 import com.rainyworks.flow.core.model.TextStroke
@@ -201,4 +202,79 @@ internal val TextStylePresets: List<TextStylePreset> = listOf(
             )
         },
     ),
+    TextStylePreset(
+        id = "impact",
+        name = "Impacto",
+        apply = layout(
+            TextContent(
+                text = "",
+                font = "sans-serif-black",
+                size = 0.08f,
+                bold = true,
+                fill = TextFill(argb = 0xFFFFD60AL, gradientEndArgb = 0xFFFF9500L),
+                stroke = TextStroke(argb = 0xFF000000L, width = 0.12f),
+                shadow = TextShadow(argb = 0xCC000000L, offsetX = 0.04f, offsetY = 0.06f, blur = 0.06f),
+                enter = TextAnimation(type = TextAnimationType.BOUNCE, durationUs = 500_000L),
+            ),
+        ),
+    ),
+    TextStylePreset(
+        id = "lower.minimal",
+        name = "Tercio inferior",
+        apply = layout(
+            TextContent(
+                text = "",
+                font = "sans-serif",
+                size = 0.048f,
+                align = TextAlign.START,
+                bold = true,
+                fill = TextFill(argb = 0xFFFFFFFFL),
+                background = TextBackground(argb = 0xD916181CL, cornerRadius = 0.22f, padding = 0.28f),
+                enter = TextAnimation(type = TextAnimationType.SLIDE_LEFT, durationUs = 450_000L),
+                exit = TextAnimation(type = TextAnimationType.FADE, durationUs = 350_000L),
+            ),
+        ),
+    ),
+    TextStylePreset(
+        id = "lower.badge",
+        name = "Tercio etiqueta",
+        apply = layout(
+            TextContent(
+                text = "",
+                font = "sans-serif-condensed",
+                size = 0.046f,
+                align = TextAlign.START,
+                bold = true,
+                letterSpacing = 0.05f,
+                fill = TextFill(argb = 0xFF00201AL),
+                background = TextBackground(argb = 0xEE4BE3C1L, cornerRadius = 0.28f, padding = 0.26f),
+                enter = TextAnimation(type = TextAnimationType.SLIDE_UP, durationUs = 400_000L),
+            ),
+        ),
+    ),
+    TextStylePreset(
+        id = "lower.editorial",
+        name = "Tercio editorial",
+        apply = layout(
+            TextContent(
+                text = "",
+                font = "sans-serif-condensed",
+                size = 0.052f,
+                align = TextAlign.START,
+                bold = true,
+                fill = TextFill(argb = 0xFFFFFFFFL),
+                background = TextBackground(argb = 0xE6FF2D92L, cornerRadius = 0.14f, padding = 0.25f),
+                shadow = TextShadow(argb = 0x66000000L, offsetX = 0.02f, offsetY = 0.03f, blur = 0.05f),
+                enter = TextAnimation(type = TextAnimationType.SLIDE_RIGHT, durationUs = 450_000L),
+            ),
+        ),
+    ),
 )
+
+/**
+ * Lower thirds and the impact title also set size and alignment (a lower third sits at the
+ * left); the words and the subtitle flag stay.
+ */
+private fun layout(template: TextContent): (TextContent) -> TextContent = { current ->
+    template.copy(text = current.text, isSubtitle = current.isSubtitle)
+}
