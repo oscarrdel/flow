@@ -186,6 +186,7 @@ private val VisualOnlyTools = setOf(
     ClipTool.Adjust,
     ClipTool.EditText,
     ClipTool.Blend,
+    ClipTool.Effects,
 )
 
 private val TimedOnlyTools = setOf(
@@ -220,6 +221,7 @@ private val HiddenForTextTools = setOf(
     ClipTool.AudioEffects,
     ClipTool.Fades,
     ClipTool.Extract,
+    ClipTool.Effects,
 )
 
 private val AdjustmentLayerTools = listOf(
@@ -241,7 +243,7 @@ internal fun clipToolsFor(
         ClipKind.IMAGE -> ClipTool.entries.filterNot { it in TimedOnlyTools || it == ClipTool.EditText }
         ClipKind.TEXT -> listOf(ClipTool.EditText) + ClipTool.entries.filterNot { it in HiddenForTextTools }
         ClipKind.ADJUSTMENT -> AdjustmentLayerTools
-        ClipKind.EFFECT -> listOf(ClipTool.Split, ClipTool.Duplicate, ClipTool.Delete)
+        ClipKind.EFFECT -> listOf(ClipTool.Effects, ClipTool.Split, ClipTool.Duplicate, ClipTool.Delete)
         else -> ClipTool.entries.filterNot {
             it == ClipTool.EditText ||
                 (!hasAudio && it in AudioClipTools) ||
@@ -278,6 +280,7 @@ private fun ClipTool.spanishLabel(): String = when (this) {
     ClipTool.AudioEffects -> "Efectos de sonido"
     ClipTool.Fades -> "Fundidos"
     ClipTool.Extract -> "Extraer audio"
+    ClipTool.Effects -> "Efectos"
 }
 
 private fun ClipTool.icon(): ImageVector = when (this) {
@@ -302,4 +305,5 @@ private fun ClipTool.icon(): ImageVector = when (this) {
     ClipTool.AudioEffects -> Icons.Rounded.Equalizer
     ClipTool.Fades -> Icons.Rounded.Timeline
     ClipTool.Extract -> Icons.Rounded.GraphicEq
+    ClipTool.Effects -> Icons.Rounded.AutoAwesome
 }

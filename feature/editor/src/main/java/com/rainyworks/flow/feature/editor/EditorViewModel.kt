@@ -18,6 +18,7 @@ import com.rainyworks.flow.core.model.Srt
 import com.rainyworks.flow.core.model.SubtitleEdits
 import com.rainyworks.flow.core.model.TextContent
 import com.rainyworks.flow.core.model.EditHistory
+import com.rainyworks.flow.core.model.EffectEdits
 import com.rainyworks.flow.core.model.Edits
 import com.rainyworks.flow.core.model.MediaEdits
 import com.rainyworks.flow.core.model.MediaRef
@@ -260,6 +261,29 @@ class EditorViewModel(
             is EditorAction.SetMuted -> current?.let { project ->
                 apply(Edits.updateClip(project, action.clipId) { it.copy(muted = action.muted) })
             }
+            is EditorAction.AddEffect -> current?.let { project ->
+                if (action.clipId == null) {
+                    val added = EffectEdits.addEffectLayer(project, action.type, _state.value.playheadUs) ?: return@let
+                    apply(added.first)
+                    _state.update { it.copy(selectedClipId = added.second, activeSheet = EditorSheet.Effects) }
+                } else {
+                    apply(EffectEdits.addEffect(project, action.clipId, action.type).first)
+                }
+            }
+            is EditorAction.SetEffectParam -> drag("effect-${action.effectId}-${action.key}", action.final) {
+                EffectEdits.setEffectParam(it, action.clipId, action.effectId, action.key, action.value)
+            }
+            is EditorAction.RemoveEffect -> current?.let { apply(EffectEdits.removeEffect(it, action.clipId, action.effectId)) }
+            is EditorAction.OpenTransition -> _state.update {
+                it.copy(transitionClipId = action.clipId, selectedClipId = null, activeSheet = EditorSheet.Transition)
+            }
+            is EditorAction.SetTransition -> drag("transition-${action.clipId}", action.final) {
+                EffectEdits.setTransition(it, action.clipId, action.transition)
+            }
+            is EditorAction.ApplyTransitionToAll -> current?.let {
+                apply(EffectEdits.setTransitionEverywhere(it, action.transition))
+                notify(strings.transitionAppliedToAll)
+            }
             is EditorAction.SetAudioPanel -> _state.update { it.copy(audioPanelOpen = action.open, activeSheet = null) }
             EditorAction.AddAudioFile -> {
                 _state.update { it.copy(audioPanelOpen = false) }
@@ -498,6 +522,7 @@ class EditorViewModel(
             GlobalTool.Overlay -> pick(PickPurpose.Overlay)
             GlobalTool.Audio -> _state.update { it.copy(audioPanelOpen = true, activeSheet = null) }
             GlobalTool.Text -> onAction(EditorAction.AddText())
+            GlobalTool.Effects -> _state.update { it.copy(selectedClipId = null, activeSheet = EditorSheet.Effects) }
             GlobalTool.Filters -> {
                 val target = _state.value.selectedClipId ?: history?.present?.mainTrack?.clipAt(_state.value.playheadUs)?.id
                 if (target == null) notify(strings.selectClipFirst)
@@ -534,6 +559,7 @@ class EditorViewModel(
             ClipTool.AudioEffects -> _state.update { it.copy(activeSheet = EditorSheet.AudioEffects) }
             ClipTool.Fades -> _state.update { it.copy(activeSheet = EditorSheet.Fades) }
             ClipTool.Extract -> extractAudio()
+            ClipTool.Effects -> _state.update { it.copy(activeSheet = EditorSheet.Effects) }
             ClipTool.Duplicate -> apply(Edits.duplicate(project, clipId))
             ClipTool.Delete -> {
                 apply(Edits.delete(project, clipId))
@@ -651,4 +677,5 @@ data class EditorStrings(
     /** Format string with one %d for the number of blocks. */
     val subtitlesImported: String,
     val subtitlesExported: String,
+    val transitionAppliedToAll: String,
 )

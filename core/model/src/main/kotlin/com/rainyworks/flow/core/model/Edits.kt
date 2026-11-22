@@ -230,14 +230,27 @@ object Edits {
 
     // region helpers
 
-    /** Lays out clips back to back starting at zero. */
+    /**
+     * Lays out clips back to back starting at zero. A clip with a transition starts early so
+     * it overlaps the previous clip for the transition's duration.
+     */
     fun layoutMagnetic(clips: List<Clip>): List<Clip> {
         var cursor = 0L
+        var previous: Clip? = null
         return clips.map { clip ->
-            val placed = if (clip.startUs == cursor) clip else clip.copy(startUs = cursor)
+            val start = (cursor - transitionOverlap(previous, clip)).coerceAtLeast(0L)
+            val placed = if (clip.startUs == start) clip else clip.copy(startUs = start)
             cursor = placed.endUs
+            previous = placed
             placed
         }
+    }
+
+    /** How long [clip] overlaps [previous] on the main track because of its incoming transition. */
+    fun transitionOverlap(previous: Clip?, clip: Clip): Long {
+        val transition = clip.transitionIn ?: return 0L
+        if (previous == null) return 0L
+        return minOf(transition.durationUs, previous.durationUs / 2, clip.durationUs / 2).coerceAtLeast(0L)
     }
 
     private fun insertionIndex(track: Track, atUs: Long): Int {

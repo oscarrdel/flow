@@ -36,6 +36,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.Title
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Icon
@@ -82,7 +83,9 @@ import com.rainyworks.flow.core.designsystem.theme.FlowTheme
 import com.rainyworks.flow.core.designsystem.theme.FlowTypography
 import com.rainyworks.flow.core.designsystem.theme.TimecodeStyle
 import com.rainyworks.flow.core.model.Clip
+import com.rainyworks.flow.core.model.ClipKind
 import com.rainyworks.flow.core.model.Edits
+import com.rainyworks.flow.core.model.EffectCatalog
 import com.rainyworks.flow.core.model.Marker
 import com.rainyworks.flow.core.model.MediaEdits
 import com.rainyworks.flow.core.model.Project
@@ -535,6 +538,81 @@ private fun MainTrackLane(
             }
         }
 
+        // Transition zones and cut buttons between consecutive MAIN-track clips
+        if (draggingClipId == null && track.clips.size > 1) {
+            val buttonSize = 22.dp
+            val halfButtonPx = with(density) { (buttonSize / 2).toPx() }
+            val minZonePx = with(density) { 6.dp.toPx() }
+            val buttonShape = RoundedCornerShape(6.dp)
+            val zoneShape = RoundedCornerShape(4.dp)
+
+            for (index in 1..track.clips.lastIndex) {
+                val rightClip = track.clips[index]
+                key("transition-${rightClip.id}") {
+                    val cutUs = rightClip.startUs
+                    val transition = rightClip.transitionIn
+                    val cutX: () -> Float = {
+                        centerOffsetPx +
+                            ((cutUs - playheadUs()).toDouble() / Timecode.US_PER_SECOND * ppsPx).toFloat()
+                    }
+
+                    if (transition != null) {
+                        val zoneWidthPx = ((transition.durationUs.toDouble() / Timecode.US_PER_SECOND) * ppsPx)
+                            .toFloat()
+                            .coerceAtLeast(minZonePx)
+                        val zoneWidthDp = with(density) { zoneWidthPx.toDp() }
+
+                        Box(
+                            modifier = Modifier
+                                .zIndex(6f)
+                                .offset {
+                                    IntOffset(
+                                        x = (cutX() - zoneWidthPx / 2f).roundToInt(),
+                                        y = 0,
+                                    )
+                                }
+                                .wrapContentWidth(align = Alignment.Start, unbounded = true)
+                                .width(zoneWidthDp)
+                                .height(MAIN_TRACK_HEIGHT)
+                                .clip(zoneShape)
+                                .background(FlowColors.Accent.copy(alpha = 0.24f))
+                                .border(1.dp, FlowColors.Accent.copy(alpha = 0.7f), zoneShape),
+                        )
+                    }
+
+                    val hasTransition = transition != null
+                    Box(
+                        modifier = Modifier
+                            .zIndex(8f)
+                            .offset {
+                                IntOffset(
+                                    x = (cutX() - halfButtonPx).roundToInt(),
+                                    y = 0,
+                                )
+                            }
+                            .align(Alignment.CenterStart)
+                            .size(buttonSize)
+                            .clip(buttonShape)
+                            .background(if (hasTransition) FlowColors.Accent else FlowColors.Slate)
+                            .border(
+                                width = 1.dp,
+                                color = if (hasTransition) FlowColors.Accent else FlowColors.Outline,
+                                shape = buttonShape,
+                            )
+                            .clickable { onAction(EditorAction.OpenTransition(rightClip.id)) },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.SwapHoriz,
+                            contentDescription = "Transición",
+                            tint = if (hasTransition) FlowColors.OnAccent else FlowColors.TextPrimary,
+                            modifier = Modifier.size(14.dp),
+                        )
+                    }
+                }
+            }
+        }
+
         // "+" button at the end of the MAIN track to emit AddMedia
         val addButtonGapPx = with(density) { 10.dp.toPx() }
         val trackEndUs = track.endUs
@@ -802,7 +880,13 @@ private fun TimelineClipItem(
                     modifier = Modifier.size(12.dp),
                 )
             }
+            val effectTitle = if (trackKind == TrackKind.EFFECT || clip.kind == ClipKind.EFFECT) {
+                clip.effects.firstOrNull()?.let { EffectCatalog.find(it.type)?.name }
+            } else {
+                null
+            }
             val title = clip.text?.text?.replace('\n', ' ')?.ifBlank { null }
+                ?: effectTitle?.ifBlank { null }
                 ?: clip.media?.displayName?.ifBlank { trackKind.spanishTitle() }
                 ?: trackKind.spanishTitle()
             Text(

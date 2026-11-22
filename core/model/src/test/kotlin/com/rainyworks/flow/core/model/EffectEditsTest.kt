@@ -64,3 +64,42 @@ class EffectEditsTest {
         assertEquals("shake", track.clips.single().effects.single().type)
     }
 }
+
+class TransitionLayoutTest {
+    private fun video(us: Long) = ProjectFactory.clipFor(MediaRef("v$us", MediaType.VIDEO, durationUs = us))
+
+    @Test
+    fun transitionsOverlapClipsAndShortenTheProject() {
+        var p = Edits.insertIntoMain(ProjectFactory.create("p", 0L), listOf(video(4_000_000), video(4_000_000), video(4_000_000)))
+        val (a, b, c) = p.mainTrack.clips
+        p = EffectEdits.setTransition(p, b.id, Transition("dissolve", 1_000_000))
+        p = EffectEdits.setTransition(p, c.id, Transition("zoom", 500_000))
+        val clips = p.mainTrack.clips
+        assertEquals(0L, clips[0].startUs)
+        assertEquals(3_000_000L, clips[1].startUs)
+        assertEquals(6_500_000L, clips[2].startUs)
+        assertEquals(10_500_000L, p.durationUs)
+        assertEquals(a.durationUs, clips[0].durationUs)
+    }
+
+    @Test
+    fun overlapShrinksWhenANeighborGetsShorter() {
+        var p = Edits.insertIntoMain(ProjectFactory.create("p", 0L), listOf(video(4_000_000), video(4_000_000)))
+        val first = p.mainTrack.clips[0]
+        val second = p.mainTrack.clips[1]
+        p = EffectEdits.setTransition(p, second.id, Transition("dissolve", 1_500_000))
+        p = Edits.trimEnd(p, first.id, 1_000_000)
+        val clips = p.mainTrack.clips
+        assertEquals(1_000_000L, clips[0].endUs)
+        assertEquals(500_000L, clips[1].startUs)
+    }
+
+    @Test
+    fun removingTheTransitionRestoresTheCut() {
+        var p = Edits.insertIntoMain(ProjectFactory.create("p", 0L), listOf(video(4_000_000), video(4_000_000)))
+        val second = p.mainTrack.clips[1].id
+        p = EffectEdits.setTransition(p, second, Transition("dissolve", 1_000_000))
+        p = EffectEdits.setTransition(p, second, null)
+        assertEquals(4_000_000L, p.mainTrack.clips[1].startUs)
+    }
+}

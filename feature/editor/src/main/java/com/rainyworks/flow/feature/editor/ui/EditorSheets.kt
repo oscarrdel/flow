@@ -183,6 +183,16 @@ internal fun EditorActiveSheet(
             onAction = onAction,
             modifier = modifier,
         )
+        EditorSheet.Effects -> EffectsSheetPanel(
+            state = state,
+            onAction = onAction,
+            modifier = modifier,
+        )
+        EditorSheet.Transition -> TransitionSheetPanel(
+            state = state,
+            onAction = onAction,
+            modifier = modifier,
+        )
     }
 }
 

@@ -22,4 +22,5 @@
     <string name="editor_subtitle_overlaps">Ese bloque se superpone con otro subtítulo</string>
     <string name="editor_subtitles_imported">%d subtítulos importados</string>
     <string name="editor_subtitles_exported">Subtítulos exportados</string>
+    <string name="editor_transition_applied_to_all">Transición aplicada a todos los cortes</string>
 </resources>

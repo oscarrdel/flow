@@ -122,4 +122,5 @@ private fun editorStrings(context: Context) = EditorStrings(
     subtitleOverlaps = context.getString(EditorR.string.editor_subtitle_overlaps),
     subtitlesImported = context.getString(EditorR.string.editor_subtitles_imported),
     subtitlesExported = context.getString(EditorR.string.editor_subtitles_exported),
+    transitionAppliedToAll = context.getString(EditorR.string.editor_transition_applied_to_all),
 )

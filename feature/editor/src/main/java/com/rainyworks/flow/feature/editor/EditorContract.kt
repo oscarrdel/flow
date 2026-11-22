@@ -13,6 +13,7 @@ import com.rainyworks.flow.core.model.Mask
 import com.rainyworks.flow.core.model.Project
 import com.rainyworks.flow.core.model.SubtitleCue
 import com.rainyworks.flow.core.model.TextContent
+import com.rainyworks.flow.core.model.Transition
 import com.rainyworks.flow.core.model.Transform
 
 data class EditorUiState(
@@ -31,6 +32,8 @@ data class EditorUiState(
     val audioPanelOpen: Boolean = false,
     /** When set, the next tap on the preview samples a color for this clip's chroma key. */
     val pickingChromaFor: String? = null,
+    /** Main-track clip whose incoming transition is being edited. */
+    val transitionClipId: String? = null,
     /** Fonts the user imported, as (display name, font id/URI) pairs. */
     val customFonts: List<Pair<String, String>> = emptyList(),
     val voiceOver: VoiceOverUiState? = null,
@@ -57,7 +60,7 @@ data class VoiceOverUiState(
 enum class EditorSheet {
     Speed, Volume, AspectRatio, Background, Transform, Crop, Opacity,
     Filters, Adjust, Curves, Hsl, Text, Subtitles,
-    Chroma, Blend, Mask, Keyframes, AudioEffects, Fades,
+    Chroma, Blend, Mask, Keyframes, AudioEffects, Fades, Effects, Transition,
 }
 
 /** Global tools shown in the bottom bar when no clip is selected. */
@@ -66,7 +69,7 @@ enum class GlobalTool { Edit, Audio, Text, Overlay, Effects, Filters, Format, Ca
 /** Tools shown in the bottom bar when a clip is selected. */
 enum class ClipTool {
     Split, Speed, Volume, Transform, Opacity, Duplicate, Delete, Replace, Freeze, Reverse, Crop, Chroma, Mask, Animation,
-    Filters, Adjust, EditText, Blend, AudioEffects, Fades, Extract,
+    Filters, Adjust, EditText, Blend, AudioEffects, Fades, Extract, Effects,
 }
 
 sealed interface EditorAction {
@@ -142,6 +145,16 @@ sealed interface EditorAction {
     data class SetFades(val clipId: String, val fadeInUs: Long, val fadeOutUs: Long, val final: Boolean) : EditorAction
     data class SetPreservePitch(val clipId: String, val preserve: Boolean) : EditorAction
     data class SetMuted(val clipId: String, val muted: Boolean) : EditorAction
+
+    /** Adds an effect to a clip; with clipId = null adds an effect layer at the playhead. */
+    data class AddEffect(val clipId: String?, val type: String) : EditorAction
+    data class SetEffectParam(val clipId: String, val effectId: String, val key: String, val value: Float, val final: Boolean) : EditorAction
+    data class RemoveEffect(val clipId: String, val effectId: String) : EditorAction
+
+    /** Opens the transition panel for the cut before [clipId] (a main-track clip that is not the first). */
+    data class OpenTransition(val clipId: String) : EditorAction
+    data class SetTransition(val clipId: String, val transition: Transition?, val final: Boolean) : EditorAction
+    data class ApplyTransitionToAll(val transition: Transition?) : EditorAction
 
     data class SetAudioPanel(val open: Boolean) : EditorAction
     data object AddAudioFile : EditorAction
