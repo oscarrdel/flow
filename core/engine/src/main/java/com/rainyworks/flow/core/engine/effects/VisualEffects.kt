@@ -18,6 +18,10 @@ object VisualEffects {
      * Effects of EFFECT-track clips. They run on the final frame (composition time equals
      * timeline time) and are active only during their clip.
      */
+    /** The clip's visual effects applied to the whole picture during the clip's time. */
+    fun forClipWindow(clip: Clip): List<GlEffect> =
+        clip.effects.filter { EffectCatalog.find(it.type) != null }.map { VisualEffect(it, clip.startUs, clip.endUs) }
+
     fun forLayers(project: Project): List<GlEffect> = project.tracks
         .filter { it.kind == TrackKind.EFFECT && !it.hidden }
         .flatMap { track -> track.clips }

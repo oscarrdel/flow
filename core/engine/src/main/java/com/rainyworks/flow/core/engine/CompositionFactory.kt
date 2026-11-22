@@ -97,6 +97,7 @@ object CompositionFactory {
             add(CanvasFill(background, canvas) { timeUs ->
                 pictureTracks.any { track -> track.clips.any { it.hasPicture && it.contains(timeUs) } }
             })
+            addAll(adjustmentEffects(project))
             addAll(VisualEffects.forLayers(project))
             if (textOverlays.isNotEmpty()) add(OverlayEffect(textOverlays))
         }
@@ -108,6 +109,20 @@ object CompositionFactory {
         if (overlays.size + mainLayers.size > 1) builder.setVideoCompositorSettings(layers)
         return builder.build()
     }
+
+    /**
+     * Adjustment layers grade (and apply the effects of) the whole picture, background
+     * included, only while each adjustment clip is on the timeline.
+     */
+    private fun adjustmentEffects(project: Project): List<Effect> = project.tracks
+        .filter { it.kind == TrackKind.ADJUSTMENT && !it.hidden }
+        .flatMap { it.clips }
+        .filter { it.kind == ClipKind.ADJUSTMENT }
+        .sortedBy { it.startUs }
+        .flatMap { clip ->
+            ColorEffects.forGrade(clip.color, clip.startUs, clip.endUs, LutCache::load) +
+                VisualEffects.forClipWindow(clip)
+        }
 
     private fun sequence(
         track: Track,
