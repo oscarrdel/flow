@@ -40,6 +40,7 @@ import androidx.compose.material.icons.automirrored.rounded.Redo
 import androidx.compose.material.icons.automirrored.rounded.Undo
 import androidx.compose.material.icons.rounded.AspectRatio
 import androidx.compose.material.icons.rounded.BookmarkAdd
+import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.FullscreenExit
@@ -580,6 +581,17 @@ private fun EditorPlaybackBar(
                         modifier = Modifier.size(18.dp),
                     )
                 }
+            }
+            IconButton(
+                onClick = { onAction(EditorAction.SaveFrame) },
+                modifier = Modifier.size(34.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.PhotoCamera,
+                    contentDescription = "Guardar fotograma como foto",
+                    tint = FlowColors.TextSecondary,
+                    modifier = Modifier.size(18.dp),
+                )
             }
             IconButton(
                 onClick = { onAction(EditorAction.AddMarker) },

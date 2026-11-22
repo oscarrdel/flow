@@ -73,6 +73,7 @@ fun FlowNavHost(container: AppContainer) {
                             reverser = { media, progress -> container.reverseProxy.create(media, progress) },
                             stickers = { spec -> container.stickers.render(spec) },
                             beats = { media -> container.beats.detect(media) },
+                            saveFrame = { project, atUs, name -> container.frames.saveToGallery(project, atUs, name) },
                         )
                     }
                 },

@@ -84,6 +84,8 @@ sealed interface EditorAction {
     data object Close : EditorAction
     data object Export : EditorAction
     data object Undo : EditorAction
+    /** Saves the picture at the playhead as a photo in the gallery. */
+    data object SaveFrame : EditorAction
     data object Redo : EditorAction
     data object TogglePlay : EditorAction
     data object ToggleFullscreen : EditorAction

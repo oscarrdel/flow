@@ -24,6 +24,7 @@ import com.rainyworks.flow.core.model.MediaEdits
 import com.rainyworks.flow.core.model.MediaRef
 import com.rainyworks.flow.core.model.MediaType
 import com.rainyworks.flow.core.model.Project
+import com.rainyworks.flow.core.model.Timecode
 import com.rainyworks.flow.core.model.ProjectFactory
 import com.rainyworks.flow.core.model.TrackKind
 import com.rainyworks.flow.core.audio.VoiceRecorder
@@ -74,6 +75,8 @@ class EditorViewModel(
     private val stickers: (suspend (com.rainyworks.flow.core.model.StickerSpec) -> MediaRef)? = null,
     /** Finds beat times (source microseconds) in a media file; null when unavailable. */
     private val beats: (suspend (MediaRef) -> LongArray)? = null,
+    /** Saves the frame at a time as a gallery photo named after the project; null when unavailable. */
+    private val saveFrame: (suspend (Project, Long, String) -> Unit)? = null,
 ) : ViewModel() {
     private val _state = MutableStateFlow(EditorUiState())
     val state: StateFlow<EditorUiState> = _state.asStateFlow()
@@ -170,6 +173,7 @@ class EditorViewModel(
             }
             is EditorAction.MoveInMain -> current?.let { apply(Edits.moveInMain(it, action.clipId, action.toIndex)) }
             is EditorAction.AddSticker -> addSticker(action.spec)
+            EditorAction.SaveFrame -> saveCurrentFrame()
             is EditorAction.SetKenBurns -> current?.let { apply(com.rainyworks.flow.core.model.KenBurns.apply(it, action.clipId, action.style)) }
             is EditorAction.PlaceInLayers -> current?.let {
                 val placed = Edits.placeInLayers(it, action.clipId, action.trackId, action.startUs)
@@ -344,6 +348,33 @@ class EditorViewModel(
             EditorAction.StartVoiceOver -> startVoiceOver()
             EditorAction.StopVoiceOver -> stopVoiceOver(keep = true)
             EditorAction.CancelVoiceOver -> stopVoiceOver(keep = false)
+        }
+    }
+
+    private fun saveCurrentFrame() {
+        val save = saveFrame ?: return
+        val project = history?.present?.takeIf { !it.isEmpty } ?: return
+        if (taskJob?.isActive == true) return
+        preview.pause()
+        val atUs = _state.value.playheadUs
+        val token = Any()
+        taskToken = token
+        taskJob = viewModelScope.launch {
+            _state.update { it.copy(task = BackgroundTask(strings.savingFrame, null)) }
+            val name = "${project.name.ifBlank { strings.untitledProject }} ${Timecode.format(atUs).replace(':', '-')}"
+            val saved = try {
+                save(project, atUs, name)
+                true
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                false
+            } finally {
+                if (taskToken === token) _state.update { it.copy(task = null) }
+            }
+            if (taskToken !== token) return@launch
+            taskToken = null
+            notify(if (saved) strings.frameSaved else strings.frameFailed)
         }
     }
 
@@ -886,4 +917,7 @@ data class EditorStrings(
     val noBeatsFound: String = "No se encontró un ritmo claro",
     /** Format string with one %d for the number of beats. */
     val beatsFound: String = "%d marcadores en el ritmo",
+    val savingFrame: String = "Guardando la foto…",
+    val frameSaved: String = "Foto guardada en la galería (Imágenes/Flow)",
+    val frameFailed: String = "No se pudo guardar la foto",
 )
