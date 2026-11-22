@@ -116,7 +116,7 @@ internal val EqualizerQuickPresets: List<EqualizerQuickPreset> = listOf(
 private enum class AudioEffectsTab(val label: String, val icon: ImageVector) {
     Equalizer("Ecualizador", Icons.Rounded.Equalizer),
     Voice("Voz", Icons.Rounded.RecordVoiceOver),
-    Space("Espacio", Icons.Rounded.BlurOn),
+    Space("Ambiente", Icons.Rounded.BlurOn),
 }
 
 /** True when the clip has an editable audio stream (VIDEO with audio or AUDIO clip). */
@@ -166,6 +166,7 @@ internal fun AudioEffectsSheetPanel(
             effects.pitchSemitones != 0f ||
             effects.echo != 0f ||
             effects.reverb != 0f ||
+            effects.denoise != 0f ||
             effects.preset != VoicePreset.NONE
         )
 
@@ -618,6 +619,18 @@ private fun SpaceTabContent(
     val currentEffects by rememberUpdatedState(effects)
 
     Column(verticalArrangement = Arrangement.spacedBy(spacing.xs)) {
+        ResettableSlider(
+            label = "Reducir ruido",
+            value = effects.denoise.coerceIn(0f, 1f),
+            valueRange = 0f..1f,
+            valueText = ::formatHundred,
+            resetValue = 0f,
+            onValueChange = { v, final ->
+                val rounded = (v * 100f).roundToInt() / 100f
+                onUpdate(currentEffects.copy(denoise = rounded), final)
+            },
+        )
+
         ResettableSlider(
             label = "Eco",
             value = effects.echo.coerceIn(0f, 1f),

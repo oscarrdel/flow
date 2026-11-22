@@ -41,6 +41,8 @@ object AudioFx {
             return@buildList
         }
         val fx = clip.audioEffects
+        // Clean the recording before any other effect colors it.
+        if (fx.denoise > 0f) add(DenoiseProcessor(fx.denoise.coerceIn(0f, 1f)))
         val pitch = 2.0.pow(fx.pitchSemitones / 12.0).toFloat()
         require(pitch.isFinite() && pitch > 0f) { "Pitch must give a finite, positive frequency ratio" }
         if (pitch != 1f) {

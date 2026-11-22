@@ -15,6 +15,8 @@ data class AudioEffects(
     /** 0..1 */
     val reverb: Float = 0f,
     val preset: VoicePreset = VoicePreset.NONE,
+    /** 0..1 strength of background noise reduction (hiss, hum, wind). */
+    val denoise: Float = 0f,
 ) {
     val isIdentity: Boolean get() = this == AudioEffects()
 }
