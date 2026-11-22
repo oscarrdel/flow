@@ -140,8 +140,8 @@ class EditorViewModel(
                     _events.send(EditorEvent.OpenExport(projectId))
                 }
             }
-            EditorAction.Undo -> history?.let { setHistory(it.undo()) }
-            EditorAction.Redo -> history?.let { setHistory(it.redo()) }
+            EditorAction.Undo -> history?.let { resetGesture(); setHistory(it.undo()) }
+            EditorAction.Redo -> history?.let { resetGesture(); setHistory(it.redo()) }
             EditorAction.TogglePlay -> if (_state.value.isPlaying) preview.pause() else preview.play()
             EditorAction.ToggleFullscreen -> _state.update { it.copy(fullscreenPreview = !it.fullscreenPreview) }
             EditorAction.AddMedia -> pick(PickPurpose.Append)
@@ -222,6 +222,7 @@ class EditorViewModel(
             EditorAction.CancelTask -> {
                 taskJob?.cancel()
                 taskJob = null
+                taskToken = null
                 _state.update { it.copy(task = null) }
             }
             EditorAction.ImportSrt -> viewModelScope.launch { _events.send(EditorEvent.OpenDocument(DocumentKind.Srt)) }
@@ -465,6 +466,8 @@ class EditorViewModel(
     }
 
     private var taskJob: Job? = null
+    /** Identifies the running task so a cancelled one cannot touch the next one's state. */
+    private var taskToken: Any? = null
 
     private fun reverseClip(clipId: String) {
         val project = history?.present ?: return
@@ -483,24 +486,41 @@ class EditorViewModel(
         }
         if (taskJob?.isActive == true) return
         preview.pause()
+        val token = Any()
+        taskToken = token
+        fun mine() = taskToken === token
         taskJob = viewModelScope.launch {
             _state.update { it.copy(task = BackgroundTask(strings.reversing, 0f)) }
             val result = try {
-                reverse(media) { p -> _state.update { s -> s.copy(task = s.task?.copy(progress = p.coerceIn(0f, 1f))) } }
+                reverse(media) { p ->
+                    if (mine()) _state.update { s -> s.copy(task = s.task?.copy(progress = p.coerceIn(0f, 1f))) }
+                }
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
                 null
             } finally {
-                _state.update { it.copy(task = null) }
+                if (mine()) _state.update { it.copy(task = null) }
             }
+            if (!mine()) return@launch
+            taskToken = null
             if (result == null) {
                 notify(strings.reverseFailed)
-            } else {
-                val current = history?.present ?: return@launch
-                if (current.findClip(clipId) != null) apply(MediaEdits.swapReversed(current, clipId, result))
+                return@launch
+            }
+            val current = history?.present ?: return@launch
+            // Only apply if the clip still shows the video that was reversed.
+            val now = current.findClip(clipId)?.second
+            if (now != null && now.media?.uri == media.uri && now.originalMedia == null) {
+                apply(MediaEdits.swapReversed(current, clipId, result))
             }
         }
+    }
+
+    /** Forgets an unfinished drag so its stale base is never edited again. */
+    private fun resetGesture() {
+        gestureBase = null
+        gestureKey = null
     }
 
     private fun back() {

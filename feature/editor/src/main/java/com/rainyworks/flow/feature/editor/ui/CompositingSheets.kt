@@ -70,6 +70,7 @@ import com.rainyworks.flow.core.designsystem.theme.FlowColors
 import com.rainyworks.flow.core.designsystem.theme.FlowTheme
 import com.rainyworks.flow.core.designsystem.theme.FlowTypography
 import com.rainyworks.flow.core.designsystem.theme.TimecodeStyle
+import com.rainyworks.flow.core.model.ClipAnimations
 import com.rainyworks.flow.core.model.AnimatedProperty
 import com.rainyworks.flow.core.model.BlendMode
 import com.rainyworks.flow.core.model.ChromaKey
@@ -364,7 +365,7 @@ internal fun sampleChromaColorAtTap(
         return clip?.chromaKey?.argb ?: CHROMA_GREEN_ARGB
     }
 
-    val transform = clip.animatedTransformAt(playheadUs)
+    val transform = ClipAnimations.renderedTransform(clip, playheadUs).first
     val frame = clipFrameFor(canvasSize, clip.media, transform)
 
     val dx = tap.x - frame.center.x

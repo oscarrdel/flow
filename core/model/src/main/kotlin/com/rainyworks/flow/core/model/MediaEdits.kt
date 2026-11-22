@@ -58,6 +58,7 @@ object MediaEdits {
             trimOutUs = trimOut,
             reversed = clip.reversed && !isStill,
             freezeAtUs = null,
+            originalMedia = null,
         )
         return project.replaceTrack(track.withClips(track.clips.map { if (it.id == clipId) replaced else it }))
     }
@@ -239,8 +240,14 @@ object MediaEdits {
                 val staticValue = propertyValue(clip.copy(keyframes = emptyMap()), property, clip.startUs)
                 list = existingTimes.fold(list) { acc, t -> Animator.setKeyframe(acc, Keyframe(t, staticValue)) }
             }
-            val easing = list.minByOrNull { kotlin.math.abs(it.timeUs - relativeUs) }?.easing ?: Easing.LINEAR
-            keyframes = keyframes + (property to Animator.setKeyframe(list, Keyframe(relativeUs, value, easing)))
+            val nearest = list.minByOrNull { kotlin.math.abs(it.timeUs - relativeUs) }
+            // Replacing a keyframe keeps its curve (including custom bezier handles).
+            val keyframe = if (nearest != null && kotlin.math.abs(nearest.timeUs - relativeUs) <= KEYFRAME_TOLERANCE_US) {
+                nearest.copy(timeUs = relativeUs, value = value)
+            } else {
+                Keyframe(relativeUs, value, nearest?.easing ?: Easing.LINEAR)
+            }
+            keyframes = keyframes + (property to Animator.setKeyframe(list, keyframe))
         }
         return clip.copy(keyframes = keyframes)
     }
@@ -327,13 +334,19 @@ object MediaEdits {
     fun swapReversed(project: Project, clipId: String, replacement: MediaRef): Project =
         Edits.updateClip(project, clipId) { clip ->
             val current = clip.media ?: return@updateClip clip
-            val duration = current.durationUs.takeIf { it > 0L } ?: return@updateClip clip
             val restoring = clip.originalMedia != null
+            // Mirror around the original's length both ways, so reverse + restore is exact even
+            // when the generated copy is a frame longer or shorter.
+            val original = if (restoring) clip.originalMedia!! else current
+            val duration = original.durationUs.takeIf { it > 0L } ?: return@updateClip clip
+            val targetDuration = replacement.durationUs.takeIf { it > 0L } ?: duration
+            val trimIn = (duration - clip.trimOutUs).coerceIn(0L, targetDuration)
+            val trimOut = (duration - clip.trimInUs).coerceIn(trimIn + 1, maxOf(trimIn + 1, targetDuration))
             clip.copy(
                 media = replacement,
                 originalMedia = if (restoring) null else current,
-                trimInUs = (duration - clip.trimOutUs).coerceAtLeast(0L),
-                trimOutUs = (duration - clip.trimInUs).coerceAtMost(duration),
+                trimInUs = trimIn,
+                trimOutUs = trimOut,
                 speedCurve = clip.speedCurve?.let { curve ->
                     curve.copy(points = curve.points.map { it.copy(position = 1f - it.position) }.sortedBy { it.position })
                 },

@@ -37,4 +37,16 @@ class CurveSpeedProviderTest {
         assertEquals(2f, provider.getSpeed(2_900_000), 1e-4f)
         assertTrue(abs(provider.timelineDurationUs - 1_500_000L) < 2_000L)
     }
+
+    @Test
+    fun equalNeighborStepsAreOneSegment() {
+        val provider = CurveSpeedProvider(12_000_000, SpeedCurve(listOf(SpeedPoint(0f, 0.5f), SpeedPoint(1f, 0.5f))), 0)
+        assertEquals(C.TIME_UNSET, provider.getNextSpeedChangeTimeUs(0))
+    }
+
+    @Test
+    fun lastPartialStepIsCountedExactly() {
+        val provider = CurveSpeedProvider(1_000_000, SpeedCurve(listOf(SpeedPoint(0f, 1f), SpeedPoint(1f, 1f))), 0)
+        assertTrue(abs(provider.timelineDurationUs - 1_000_000) <= 2)
+    }
 }

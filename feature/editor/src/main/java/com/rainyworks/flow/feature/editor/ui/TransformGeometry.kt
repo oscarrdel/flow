@@ -26,7 +26,8 @@ private const val CROP_EPSILON = 0.001f
  * and entrance/exit animations.
  */
 internal fun Clip.animatedTransformAt(timelineUs: Long): Transform =
-    ClipAnimations.renderedTransform(this, timelineUs).first
+    // Panels edit the clip's own (keyframed) transform; entrance/exit motion is not part of it.
+    ClipAnimations.renderedTransform(copy(enterAnimation = null, exitAnimation = null), timelineUs).first
 
 /**
  * Resolves the clip's [Mask] at [timelineUs] by evaluating any keyframe animations

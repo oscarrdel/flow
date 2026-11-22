@@ -68,19 +68,25 @@ class PreviewController @MainThread constructor(context: Context) {
                 watchedPositionMs = -1L
                 return
             }
+            val positionMs = preview.currentPosition
             if (!startedSincePrepare) {
-                main.postDelayed(this, STALL_CHECK_MS)
                 watchedPositionMs = -1L
+                main.postDelayed(this, STALL_CHECK_MS)
                 return
             }
+            // Real progress well past the last stall ends that episode and its retry budget.
+            if (stallPositionMs >= 0 && positionMs > stallPositionMs + STALL_PROGRESS_MS) {
+                stallPositionMs = -1L
+                stallRecoveries = 0
+            }
             val now = SystemClock.elapsedRealtime()
-            val positionMs = preview.currentPosition
             if (positionMs != watchedPositionMs) {
                 watchedPositionMs = positionMs
                 watchedSinceMs = now
             } else if (now - watchedSinceMs >= STALL_TIMEOUT_MS) {
-                recoverFromStall(positionMs)
                 watchedPositionMs = -1L
+                // Recovery prepares a new player, which schedules the next check itself.
+                if (recoverFromStall(positionMs)) return
             }
             main.postDelayed(this, STALL_CHECK_MS)
         }
@@ -92,20 +98,22 @@ class PreviewController @MainThread constructor(context: Context) {
         main.postDelayed(stallWatch, STALL_CHECK_MS)
     }
 
-    private fun recoverFromStall(positionMs: Long) {
-        val project = current ?: return
-        if (positionMs != stallPositionMs) {
+    /** Returns true when a new player was prepared. */
+    private fun recoverFromStall(positionMs: Long): Boolean {
+        val project = current ?: return false
+        // One budget per stall episode; nudged positions belong to the same episode.
+        if (stallPositionMs < 0 || positionMs > stallPositionMs + STALL_PROGRESS_MS) {
             stallPositionMs = positionMs
             stallRecoveries = 0
         }
-        if (stallRecoveries >= MAX_STALL_RECOVERIES) return
+        if (stallRecoveries >= MAX_STALL_RECOVERIES) return false
         stallRecoveries++
         // The second attempt also nudges past the boundary that stalled.
         val resumeAtMs = if (stallRecoveries > 1) positionMs + STALL_NUDGE_MS else positionMs
-        current = null
         prepareProject(project, startMs = resumeAtMs, forcePlay = true)
-        current = project
+        return true
     }
+
     private val tick = object : Runnable {
         override fun run() {
             updatePosition()
@@ -201,7 +209,16 @@ class PreviewController @MainThread constructor(context: Context) {
             playerFailed = false
         }
         current = project
-        startedSincePrepare = forcePlay
+        startedSincePrepare = false
+        if (project.isEmpty) {
+            // Nothing to play: keep the player idle instead of reporting a build failure.
+            main.removeCallbacks(stallWatch)
+            preview.pause()
+            playerFailed = false
+            playbackError.value = null
+            position.value = 0L
+            return
+        }
         try {
             preview.setComposition(CompositionFactory.build(project, ExportSettings(heightPx = previewShortSidePx)), positionMs)
             preview.prepare()
@@ -287,6 +304,7 @@ private const val STALL_CHECK_MS = 500L
 private const val STALL_TIMEOUT_MS = 1_500L
 private const val STALL_NUDGE_MS = 34L
 private const val MAX_STALL_RECOVERIES = 2
+private const val STALL_PROGRESS_MS = 500L
 private const val DEFAULT_PREVIEW_SHORT_SIDE = 720
 private const val MIN_PREVIEW_SHORT_SIDE = 240
 private const val MAX_PREVIEW_SHORT_SIDE = 1080

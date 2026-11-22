@@ -103,7 +103,14 @@ internal fun CanvasInteractionLayer(
                     target.copy(enterAnimation = null, exitAnimation = null),
                     now,
                 )
-                val clipFrame = frameForClip(target, startTransform, canvasSize, currentTextRenderer)
+                // Touches are tested against what is visible (with entrance/exit motion), while
+                // the edit applies to the clip's own transform.
+                val clipFrame = frameForClip(
+                    target,
+                    ClipAnimations.renderedTransform(target, now).first,
+                    canvasSize,
+                    currentTextRenderer,
+                )
                 val activeMask = if (currentEditMask) target.animatedMaskAt(now) else null
 
                 if (activeMask != null) {

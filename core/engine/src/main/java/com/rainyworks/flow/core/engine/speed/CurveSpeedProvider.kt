@@ -23,25 +23,35 @@ class CurveSpeedProvider(
     private val timeBaseUs: Long,
 ) : SpeedProvider {
     private val stepUs: Long
+    private val stepStarts: LongArray
+    private val stepEnds: LongArray
     private val speeds: FloatArray
+    /** Index of the next step whose speed differs, so equal neighbors read as one segment. */
+    private val nextChange: IntArray
 
     init {
         require(sourceDurationUs > 0) { "Empty clip" }
         val steps = (sourceDurationUs / TARGET_STEP_US).toInt().coerceIn(1, MAX_STEPS)
         stepUs = (sourceDurationUs + steps - 1) / steps
+        stepStarts = LongArray(steps) { it * stepUs }
+        stepEnds = LongArray(steps) { minOf(sourceDurationUs, (it + 1) * stepUs) }
         speeds = FloatArray(steps) { i ->
-            val from = i * stepUs
-            val to = minOf(sourceDurationUs, from + stepUs)
-            val timelineFrom = SpeedRamp.timelineOffsetAt(from, sourceDurationUs, curve)
-            val timelineTo = SpeedRamp.timelineOffsetAt(to, sourceDurationUs, curve)
+            val timelineFrom = SpeedRamp.timelineOffsetAt(stepStarts[i], sourceDurationUs, curve)
+            val timelineTo = SpeedRamp.timelineOffsetAt(stepEnds[i], sourceDurationUs, curve)
             val timeline = (timelineTo - timelineFrom).coerceAtLeast(1L)
-            ((to - from).toDouble() / timeline).toFloat()
+            ((stepEnds[i] - stepStarts[i]).toDouble() / timeline).toFloat()
+        }
+        nextChange = IntArray(steps)
+        var next = steps
+        for (i in steps - 1 downTo 0) {
+            nextChange[i] = next
+            if (i > 0 && !sameSpeed(speeds[i - 1], speeds[i])) next = i
         }
     }
 
     /** Timeline length of the whole clip with this staircase, for tests and checks. */
     val timelineDurationUs: Long
-        get() = speeds.indices.sumOf { i -> (stepUs / speeds[i].toDouble()).roundToLong() }
+        get() = speeds.indices.sumOf { i -> ((stepEnds[i] - stepStarts[i]) / speeds[i].toDouble()).roundToLong() }
 
     private fun step(timeUs: Long): Int =
         ((timeUs - timeBaseUs).coerceAtLeast(0L) / stepUs).toInt().coerceIn(0, speeds.lastIndex)
@@ -49,13 +59,15 @@ class CurveSpeedProvider(
     override fun getSpeed(timeUs: Long): Float = speeds[step(timeUs)]
 
     override fun getNextSpeedChangeTimeUs(timeUs: Long): Long {
-        val next = step(timeUs) + 1
-        return if (next > speeds.lastIndex) C.TIME_UNSET else timeBaseUs + next * stepUs
+        val next = nextChange[step(timeUs)]
+        return if (next > speeds.lastIndex) C.TIME_UNSET else timeBaseUs + stepStarts[next]
     }
+
+    private fun sameSpeed(a: Float, b: Float) = kotlin.math.abs(a - b) <= 1e-4f * maxOf(a, b)
 
     companion object {
         private const val TARGET_STEP_US = 33_333L
-        private const val MAX_STEPS = 300
+        private const val MAX_STEPS = 20_000
 
         fun forClip(clip: Clip, timeBaseUs: Long): CurveSpeedProvider? {
             val curve = clip.speedCurve ?: return null

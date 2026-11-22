@@ -13,6 +13,7 @@ import androidx.media3.effect.StaticOverlaySettings
 import com.rainyworks.flow.core.model.AnimatedProperty
 import com.rainyworks.flow.core.model.BlendMode
 import com.rainyworks.flow.core.model.Clip
+import com.rainyworks.flow.core.model.ClipAnimations
 import com.rainyworks.flow.core.model.ClipKind
 import com.rainyworks.flow.core.model.Track
 import kotlin.math.cos
@@ -49,7 +50,15 @@ class LayerBlendCompositor(
                 clip.enterAnimation != null || clip.exitAnimation != null
         }
     } else {
-        layers.any { clips -> clips.any { it.blendMode != BlendMode.NORMAL } }
+        // Media3's native compositor clamps anchors to the canvas, so motion that can leave
+        // the frame (animations, keyframes, far offsets) goes through the shader instead.
+        layers.any { clips ->
+            clips.any {
+                it.blendMode != BlendMode.NORMAL || it.enterAnimation != null || it.exitAnimation != null ||
+                    it.keyframes.keys.any { key -> key in OVERLAY_PROPERTIES } ||
+                    kotlin.math.abs(it.transform.offsetX) > 0.5f || kotlin.math.abs(it.transform.offsetY) > 0.5f
+            }
+        }
     }
     private fun rowsFor(cols: Int) = 1 + (layers.size - 1) / cols
     private val columns = (1..layers.size).minWith(compareBy(
@@ -103,17 +112,19 @@ class LayerBlendCompositor(
                     }
                     for (i in layers.indices) {
                         val clip = clipAt(i, presentationTimeUs)
-                        val settings = clip?.let { animatedOverlaySettings(it, presentationTimeUs) } ?: transparent
-                        val sx = settings.scale.first
-                        val sy = settings.scale.second
-                        val visible = sx != 0f && sy != 0f && settings.alphaScale > 0f
-                        val angle = Math.toRadians(settings.rotationDegrees.toDouble())
-                        val anchor = settings.backgroundFrameAnchor
-                        program.setFloatsUniform("uPose$i", floatArrayOf(anchor.first, anchor.second,
+                        // Pose straight from the model, without the anchor clamp OverlaySettings needs.
+                        val pose = clip?.let { ClipAnimations.renderedTransform(it, presentationTimeUs) }
+                        val t = pose?.first
+                        val alpha = pose?.second ?: 0f
+                        val sx = if (t == null) 0f else if (t.flipHorizontal) -t.scale else t.scale
+                        val sy = if (t == null) 0f else if (t.flipVertical) -t.scale else t.scale
+                        val visible = sx != 0f && sy != 0f && alpha > 0f
+                        val angle = Math.toRadians(-(t?.rotationDegrees ?: 0f).toDouble())
+                        program.setFloatsUniform("uPose$i", floatArrayOf(2f * (t?.offsetX ?: 0f), -2f * (t?.offsetY ?: 0f),
                             cos(angle).toFloat(), sin(angle).toFloat()))
                         program.setFloatsUniform("uLayer$i", floatArrayOf(
                             if (visible) 1f / sx else 0f, if (visible) 1f / sy else 0f,
-                            if (visible) settings.alphaScale else 0f, (clip?.blendMode ?: BlendMode.NORMAL).ordinal.toFloat(),
+                            if (visible) alpha else 0f, (clip?.blendMode ?: BlendMode.NORMAL).ordinal.toFloat(),
                         ))
                     }
                 }
