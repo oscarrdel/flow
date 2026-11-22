@@ -56,12 +56,24 @@ object CompositionFactory {
      * [titles] draws text clips over the final frame. The editor preview leaves it null
      * because it draws titles itself for instant feedback while typing.
      */
-    fun build(project: Project, settings: ExportSettings, titles: TextRenderer? = null, live: LiveEdit? = null): Composition {
+    fun build(
+        project: Project,
+        settings: ExportSettings,
+        titles: TextRenderer? = null,
+        live: LiveEdit? = null,
+        frames: FrameClock? = null,
+    ): Composition {
         require(project.durationUs > 0) { "El proyecto está vacío." }
-        return compose(project, settings, titles, live)
+        return compose(project, settings, titles, live, frames)
     }
 
-    private fun compose(project: Project, settings: ExportSettings, titles: TextRenderer?, live: LiveEdit? = null): Composition {
+    private fun compose(
+        project: Project,
+        settings: ExportSettings,
+        titles: TextRenderer?,
+        live: LiveEdit? = null,
+        frames: FrameClock? = null,
+    ): Composition {
         val canvas = Size(settings.width(project), settings.height(project))
         val durationUs = project.durationUs.coerceAtLeast(1_000L)
         val overlays = project.tracks.filter {
@@ -91,7 +103,7 @@ object CompositionFactory {
                 !it.hidden && it.clips.any(it::isAudible)
         }.forEach { sequences += sequence(it, durationUs, canvas, settings.frameRate, hasVideoLayers, audioOnly = true, ducking = ducking) }
         // Overlays first (foreground), main track last, matching the video sequence order.
-        val layers = LayerBlendCompositor(canvas, overlays + mainLayers, rolls?.windows.orEmpty(), live)
+        val layers = LayerBlendCompositor(canvas, overlays + mainLayers, rolls?.windows.orEmpty(), live, frames)
 
         val textOverlays = titles?.let { TextOverlays.forProject(project, it, canvas.width, canvas.height) }.orEmpty()
         val finalEffects = buildList<Effect> {
@@ -283,13 +295,24 @@ object CompositionFactory {
             putChannelMixingMatrix(matrix.scaleBy(volume))
         }
         // En 6.1 el canal trasero central se reparte. En 7.1 hay un par trasero independiente.
-        for (channels in 7..8) {
-            val coefficients = floatArrayOf(
-                1f, 0f, 0f, 1f, 0.707f, 0.707f, 0.5f, 0.5f, 0.707f, 0f, 0f, 0.707f,
-            ) + if (channels == 7) floatArrayOf(0.5f, 0.5f) else floatArrayOf(0.707f, 0f, 0f, 0.707f)
+        // Más de 8 canales (Dolby Atmos 7.1.4, 7.1.2, 5.1.4…): las primeras 8 como 7.1 y los
+        // canales de altura alternando izquierda y derecha a -6 dB.
+        for (channels in 7..MAX_INPUT_CHANNELS) {
+            val base = floatArrayOf(1f, 0f, 0f, 1f, 0.707f, 0.707f, 0.5f, 0.5f, 0.707f, 0f, 0f, 0.707f)
+            val coefficients = when (channels) {
+                7 -> base + floatArrayOf(0.5f, 0.5f)
+                else -> base + floatArrayOf(0.707f, 0f, 0f, 0.707f) + FloatArray((channels - 8) * 2) { i ->
+                    val extra = i / 2
+                    val toLeft = extra % 2 == 0
+                    if ((i % 2 == 0) == toLeft) 0.5f else 0f
+                }
+            }
             putChannelMixingMatrix(ChannelMixingMatrix(channels, 2, coefficients).scaleBy(volume))
         }
     }
+
+    /** Highest channel count downmixed to stereo (immersive formats go up to 24). */
+    private const val MAX_INPUT_CHANNELS = 24
 
     private val Clip.hasPicture: Boolean get() =
         kind != ClipKind.AUDIO && media?.hasVideo == true

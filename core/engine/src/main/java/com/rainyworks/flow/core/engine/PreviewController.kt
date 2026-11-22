@@ -80,6 +80,15 @@ class PreviewController @MainThread constructor(context: Context) {
                 stallRecoveries = 0
             }
             val now = SystemClock.elapsedRealtime()
+            // The clock can keep running while the layered video graph stops producing
+            // pictures (seen around transitions): the picture freezes and the end never comes.
+            val frameUs = frames.lastFrameUs
+            val durationMs = (current?.durationUs ?: 0L) / 1_000
+            val videoStalled = frameUs >= 0 && positionMs - frameUs / 1_000 > VIDEO_STALL_MS
+            if (videoStalled || positionMs > durationMs + VIDEO_STALL_MS) {
+                watchedPositionMs = -1L
+                if (recoverFromStall(minOf(positionMs, durationMs))) return
+            }
             if (positionMs != watchedPositionMs) {
                 watchedPositionMs = positionMs
                 watchedSinceMs = now
@@ -149,7 +158,11 @@ class PreviewController @MainThread constructor(context: Context) {
             oldPosition: Player.PositionInfo,
             newPosition: Player.PositionInfo,
             reason: Int,
-        ) = updatePosition()
+        ) {
+            // After a jump the last picture belongs to the old position; wait for new ones.
+            frames.reset()
+            updatePosition()
+        }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
             if (!playerFailed && playbackState == Player.STATE_READY) playbackError.value = null
@@ -200,6 +213,7 @@ class PreviewController @MainThread constructor(context: Context) {
     }
 
     private val live = LiveEdit()
+    private val frames = FrameClock()
     /** Rebuild even if the project did not change, to show a clip hidden for a gesture again. */
     private var forceRebuild = false
 
@@ -269,7 +283,11 @@ class PreviewController @MainThread constructor(context: Context) {
             return
         }
         try {
-            preview.setComposition(CompositionFactory.build(project, ExportSettings(heightPx = previewShortSidePx), live = live), positionMs)
+            frames.reset()
+            preview.setComposition(
+                CompositionFactory.build(project, ExportSettings(heightPx = previewShortSidePx), live = live, frames = frames),
+                positionMs,
+            )
             preview.prepare()
             preview.playWhenReady = resume
             if (resume) watchForStalls()
@@ -351,6 +369,8 @@ class PreviewController @MainThread constructor(context: Context) {
 
 private const val STALL_CHECK_MS = 500L
 private const val STALL_TIMEOUT_MS = 1_500L
+/** How far the clock may run ahead of the last composed picture before it counts as a stall. */
+private const val VIDEO_STALL_MS = 1_500L
 private const val BUFFER_STALL_MS = 2_500L
 private const val MAX_BUFFER_RECOVERIES = 2
 private const val STALL_NUDGE_MS = 34L

@@ -34,6 +34,8 @@ class LayerBlendCompositor(
     private val transitions: List<TransitionWindow> = emptyList(),
     /** Preview only: the clip being dragged, which the editor draws itself meanwhile. */
     private val live: LiveEdit? = null,
+    /** Preview only: told about every composed picture, to notice a stalled video graph. */
+    private val frames: com.rainyworks.flow.core.engine.FrameClock? = null,
 ) : VideoCompositorSettings {
     init {
         require(canvas.width > 0 && canvas.height > 0 && tracks.isNotEmpty())
@@ -88,6 +90,7 @@ class LayerBlendCompositor(
     override fun getOutputSize(inputSizes: List<Size>) = if (shaderNeeded) atlasSize else canvas
 
     override fun getOverlaySettings(inputId: Int, presentationTimeUs: Long): OverlaySettings {
+        frames?.onFrame(presentationTimeUs)
         val clip = clipAt(inputId, presentationTimeUs) ?: return transparent
         return if (shaderNeeded) tiles[inputId] else animatedOverlaySettings(clip, presentationTimeUs)
     }
@@ -105,6 +108,7 @@ class LayerBlendCompositor(
                 }
 
                 override fun setFrame(program: GlProgram, presentationTimeUs: Long) {
+                    frames?.onFrame(presentationTimeUs)
                     if (transitions.isNotEmpty()) {
                         val window = transitions.firstOrNull { presentationTimeUs >= it.startUs && presentationTimeUs < it.endUs }
                         program.setFloatsUniform("uTransition", if (window == null) floatArrayOf(0f, 0f, 0f, 0f) else floatArrayOf(

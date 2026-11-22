@@ -24,3 +24,20 @@ class LiveEdit {
 
     fun hides(clip: Clip): Boolean = clip.id == hiddenClipId
 }
+
+/**
+ * Preview only: the latest picture time the layer compositor produced. When the playback clock
+ * keeps moving but no new picture arrives, the video graph has stalled.
+ */
+class FrameClock {
+    @Volatile var lastFrameUs: Long = -1L
+        private set
+
+    fun onFrame(presentationTimeUs: Long) {
+        lastFrameUs = presentationTimeUs
+    }
+
+    fun reset() {
+        lastFrameUs = -1L
+    }
+}
