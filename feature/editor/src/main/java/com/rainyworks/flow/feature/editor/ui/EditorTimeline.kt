@@ -86,6 +86,7 @@ import com.rainyworks.flow.core.model.Clip
 import com.rainyworks.flow.core.model.ClipAnimations
 import com.rainyworks.flow.core.model.ClipKind
 import com.rainyworks.flow.core.model.Edits
+import com.rainyworks.flow.core.model.MediaType
 import com.rainyworks.flow.core.model.EffectCatalog
 import com.rainyworks.flow.core.model.Marker
 import com.rainyworks.flow.core.model.MediaEdits
@@ -1135,14 +1136,35 @@ private fun TrimHandle(
                 var accumulatedPx = 0f
                 var latestTargetUs = 0L
                 var lastSnappedPointUs: Long? = null
+                var minBoundaryUs = 0L
+                var maxBoundaryUs = Long.MAX_VALUE
+                var atLimit = false
 
                 detectHorizontalDragGestures(
                     onDragStart = {
-                        initialBoundaryUs = if (isStart) currentClip.startUs else currentClip.endUs
-                        fixedOppositeUs = if (isStart) currentClip.endUs else currentClip.startUs
+                        val c = currentClip
+                        initialBoundaryUs = if (isStart) c.startUs else c.endUs
+                        fixedOppositeUs = if (isStart) c.endUs else c.startUs
                         accumulatedPx = 0f
                         latestTargetUs = initialBoundaryUs
                         lastSnappedPointUs = null
+                        atLimit = false
+                        // How far the handle may go: the media that is left and the shortest clip.
+                        val mediaUs = c.media?.durationUs?.takeIf {
+                            it > 0L && (c.media?.type == MediaType.VIDEO || c.media?.type == MediaType.AUDIO)
+                        }
+                        val speed = c.speed.coerceAtLeast(Edits.MIN_SPEED)
+                        if (isStart) {
+                            val sourceBefore = if (c.reversed) (mediaUs ?: 0L) - c.trimOutUs else c.trimInUs
+                            minBoundaryUs = if (mediaUs == null || c.speedCurve != null) 0L
+                            else (c.startUs - (sourceBefore / speed).toLong()).coerceAtLeast(0L)
+                            maxBoundaryUs = (fixedOppositeUs - Edits.MIN_CLIP_US).coerceAtLeast(0L)
+                        } else {
+                            val sourceAfter = if (c.reversed) c.trimInUs else (mediaUs ?: 0L) - c.trimOutUs
+                            minBoundaryUs = fixedOppositeUs + Edits.MIN_CLIP_US
+                            maxBoundaryUs = if (mediaUs == null || c.speedCurve != null) Long.MAX_VALUE
+                            else c.endUs + (sourceAfter / speed).toLong()
+                        }
                     },
                     onDragEnd = {
                         if (isStart) {
@@ -1186,13 +1208,15 @@ private fun TrimHandle(
                         change.consume()
                         accumulatedPx += dragAmount
                         val deltaUs = ((accumulatedPx / currentPpsPx) * Timecode.US_PER_SECOND).roundToLong()
-                        val rawCandidateUs = if (isStart) {
-                            (initialBoundaryUs + deltaUs).coerceIn(
-                                0L,
-                                (fixedOppositeUs - Edits.MIN_CLIP_US).coerceAtLeast(0L),
-                            )
-                        } else {
-                            (initialBoundaryUs + deltaUs).coerceAtLeast(fixedOppositeUs + Edits.MIN_CLIP_US)
+                        val unclamped = initialBoundaryUs + deltaUs
+                        val rawCandidateUs = unclamped.coerceIn(minBoundaryUs, maxOf(minBoundaryUs, maxBoundaryUs))
+                        // One firm tick when the handle reaches the end of the media or the shortest clip.
+                        val limited = rawCandidateUs != unclamped
+                        if (limited && !atLimit) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        atLimit = limited
+                        if (limited) {
+                            // Keep the finger offset in step with the limit so moving back responds at once.
+                            accumulatedPx = ((rawCandidateUs - initialBoundaryUs).toFloat() / Timecode.US_PER_SECOND) * currentPpsPx
                         }
 
                         // Check proximity to other clip boundaries or the playhead for haptic snap
