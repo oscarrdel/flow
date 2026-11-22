@@ -1,5 +1,7 @@
 package com.rainyworks.flow.feature.editor.ui
 
+import androidx.compose.material3.IconButton
+
 import android.graphics.Bitmap
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -842,68 +844,46 @@ internal fun KeyframesSheetPanel(
     val clip = rememberSelectedClip(state)
     val playheadUs = state.playheadUs
 
-    val specs = remember(clip?.mask != null) {
-        if (clip?.mask != null) BaseAnimatableSpecs + MaskAnimatableSpecs else BaseAnimatableSpecs
-    }
-
-    var selectedProperty by remember(clip?.id) { mutableStateOf(AnimatedProperty.OFFSET_X) }
-
     val keyframeTimes = remember(clip) { clip?.let(MediaEdits::keyframeTimes).orEmpty() }
-    val hasPrevKeyframe = remember(keyframeTimes, playheadUs) {
-        keyframeTimes.any { it < playheadUs - 1_000L }
+    val hasPrevKeyframe = keyframeTimes.any { it < playheadUs - 1_000L }
+    val hasNextKeyframe = keyframeTimes.any { it > playheadUs + 1_000L }
+    val motionKeyframe = clip?.let { c ->
+        MediaEdits.MOTION_PROPERTIES.firstNotNullOfOrNull { c.keyframeAtPlayhead(it, playheadUs) }
     }
-    val hasNextKeyframe = remember(keyframeTimes, playheadUs) {
-        keyframeTimes.any { it > playheadUs + 1_000L }
-    }
-
-    val activeKeyframePair: Pair<String, Keyframe>? = remember(clip, playheadUs, selectedProperty, specs) {
-        if (clip == null) {
-            null
-        } else {
-            val selectedKf = clip.keyframeAtPlayhead(selectedProperty, playheadUs)
-            if (selectedKf != null) {
-                selectedProperty to selectedKf
-            } else {
-                specs.firstNotNullOfOrNull { spec ->
-                    clip.keyframeAtPlayhead(spec.property, playheadUs)?.let { spec.property to it }
-                }
-            }
+    val animated = clip != null && MediaEdits.hasMotionKeyframes(clip)
+    val extraSpecs = remember(clip?.mask != null, clip?.media?.hasAudio) {
+        buildList {
+            if (clip?.media?.hasAudio == true) add(BaseAnimatableSpecs.last())
+            if (clip?.mask != null) addAll(MaskAnimatableSpecs)
         }
     }
 
     FlowBottomPanel(
         title = "Animación",
-        subtitle = if (activeKeyframePair != null) {
-            "Keyframe en el cabezal · Ajusta la curva de suavizado"
-        } else {
-            "Toca el rombo de una propiedad para añadir o quitar un keyframe"
+        subtitle = when {
+            motionKeyframe != null -> "Keyframe en el cabezal"
+            animated -> "Cambia el clip aquí para crear otro keyframe"
+            else -> "Agrega un keyframe para empezar a animar"
         },
         onDismiss = { onAction(EditorAction.DismissSheet) },
         headerTrailing = {
             if (clip != null) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(spacing.xs),
-                ) {
-                    SheetActionChip(
-                        label = "Anterior",
-                        icon = Icons.Rounded.SkipPrevious,
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
                         enabled = hasPrevKeyframe,
                         onClick = { onAction(EditorAction.JumpToKeyframe(clip.id, forward = false)) },
-                    )
-                    SheetActionChip(
-                        label = "Siguiente",
-                        icon = Icons.Rounded.SkipNext,
+                    ) { Icon(Icons.Rounded.SkipPrevious, contentDescription = "Keyframe anterior") }
+                    IconButton(
                         enabled = hasNextKeyframe,
                         onClick = { onAction(EditorAction.JumpToKeyframe(clip.id, forward = true)) },
-                    )
+                    ) { Icon(Icons.Rounded.SkipNext, contentDescription = "Keyframe siguiente") }
                 }
             }
         },
         modifier = modifier,
     ) {
         if (clip == null) {
-            SheetEmptyMessage("Selecciona un clip para animar sus propiedades con keyframes.")
+            SheetEmptyMessage("Selecciona un clip para animarlo.")
             return@FlowBottomPanel
         }
 
@@ -911,111 +891,105 @@ internal fun KeyframesSheetPanel(
             modifier = Modifier
                 .heightIn(max = KEYFRAMES_LIST_MAX_HEIGHT)
                 .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(spacing.xs),
+            verticalArrangement = Arrangement.spacedBy(spacing.sm),
         ) {
-            if (activeKeyframePair != null) {
-                val (targetProp, targetKf) = activeKeyframePair
-                LazyRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(spacing.xs),
-                    contentPadding = PaddingValues(vertical = 2.dp),
-                ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (motionKeyframe != null) FlowColors.Keyframe.copy(alpha = 0.12f) else FlowColors.Slate)
+                    .clickable { onAction(EditorAction.ToggleKeyframe(clip.id, AnimatedProperty.OFFSET_X)) }
+                    .padding(horizontal = spacing.sm, vertical = spacing.xs),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                KeyframeDiamondButton(
+                    filled = motionKeyframe != null,
+                    contentDescription = if (motionKeyframe != null) "Quitar keyframe" else "Agregar keyframe",
+                    onClick = { onAction(EditorAction.ToggleKeyframe(clip.id, AnimatedProperty.OFFSET_X)) },
+                )
+                Spacer(Modifier.width(spacing.md))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = if (motionKeyframe != null) "Quitar keyframe" else "Agregar keyframe",
+                        style = FlowTypography.titleSmall,
+                        color = FlowColors.TextPrimary,
+                    )
+                    Text(
+                        text = "Guarda posición, tamaño, giro y opacidad en este momento.",
+                        style = FlowTypography.bodySmall,
+                        color = FlowColors.TextSecondary,
+                    )
+                }
+            }
+
+            if (motionKeyframe != null) {
+                Text("Movimiento hacia el siguiente keyframe", style = FlowTypography.labelMedium, color = FlowColors.TextSecondary)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(spacing.xs)) {
                     items(EasingOptions, key = { it.easing.name }) { option ->
                         FilterChip(
-                            selected = targetKf.easing == option.easing,
+                            selected = motionKeyframe.easing == option.easing,
                             onClick = {
-                                onAction(
-                                    EditorAction.SetKeyframeEasing(
-                                        clipId = clip.id,
-                                        property = targetProp,
-                                        timeUs = playheadUs,
-                                        easing = option.easing,
-                                    )
-                                )
+                                onAction(EditorAction.SetKeyframeEasing(clip.id, AnimatedProperty.OFFSET_X, playheadUs, option.easing))
                             },
-                            label = {
-                                Text(
-                                    text = option.label,
-                                    style = FlowTypography.labelMedium,
-                                )
-                            },
+                            label = { Text(option.label, style = FlowTypography.labelMedium) },
                             colors = sheetChipColors(),
                         )
                     }
                 }
+            } else if (animated) {
+                Text(
+                    text = "Mueve, escala o gira el clip en la vista previa y se creará un keyframe aquí.",
+                    style = FlowTypography.bodySmall,
+                    color = FlowColors.Keyframe,
+                )
+            } else {
+                Text(
+                    text = "Después mueve el cabezal a otro momento y cambia el clip en la vista previa: Flow anima el cambio.",
+                    style = FlowTypography.bodySmall,
+                    color = FlowColors.TextSecondary,
+                )
             }
 
-            specs.forEach { spec ->
-                val kfAtPlayhead = clip.keyframeAtPlayhead(spec.property, playheadUs)
-                val hasKeyframeHere = kfAtPlayhead != null
-                val totalKeyframes = clip.keyframes[spec.property]?.size ?: 0
-                val currentValue = MediaEdits.propertyValue(clip, spec.property, playheadUs)
-                val isSelectedRow = spec.property == selectedProperty
+            Row(horizontalArrangement = Arrangement.spacedBy(spacing.sm)) {
+                val x = MediaEdits.propertyValue(clip, AnimatedProperty.OFFSET_X, playheadUs)
+                val y = MediaEdits.propertyValue(clip, AnimatedProperty.OFFSET_Y, playheadUs)
+                MotionValue("Posición", "${formatSignedPercent(x)} · ${formatSignedPercent(y)}")
+                MotionValue("Tamaño", "${(MediaEdits.propertyValue(clip, AnimatedProperty.SCALE, playheadUs) * 100f).roundToInt()}%")
+                MotionValue("Giro", "${MediaEdits.propertyValue(clip, AnimatedProperty.ROTATION, playheadUs).roundToInt()}°")
+                MotionValue("Opacidad", "${(MediaEdits.propertyValue(clip, AnimatedProperty.OPACITY, playheadUs) * 100f).roundToInt()}%")
+            }
 
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(
-                            if (isSelectedRow) FlowColors.Slate else FlowColors.Slate.copy(alpha = 0.55f)
-                        )
-                        .border(
-                            width = 1.dp,
-                            color = if (hasKeyframeHere) {
-                                FlowColors.Keyframe.copy(alpha = 0.7f)
-                            } else if (isSelectedRow) {
-                                FlowColors.Outline
-                            } else {
-                                Color.Transparent
-                            },
-                            shape = RoundedCornerShape(10.dp),
-                        )
-                        .clickable { selectedProperty = spec.property }
-                        .padding(horizontal = spacing.md, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = spec.label,
-                            style = FlowTypography.labelLarge,
-                            color = FlowColors.TextPrimary,
-                        )
-                        if (totalKeyframes > 0) {
-                            Text(
-                                text = "$totalKeyframes keyframe${if (totalKeyframes == 1) "" else "s"}",
-                                style = FlowTypography.labelSmall,
-                                color = FlowColors.Keyframe,
-                            )
-                        }
-                    }
-
+            extraSpecs.forEach { spec ->
+                val hasKeyframeHere = clip.keyframeAtPlayhead(spec.property, playheadUs) != null
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(spec.label, style = FlowTypography.labelLarge, color = FlowColors.TextPrimary, modifier = Modifier.weight(1f))
                     Text(
-                        text = spec.formatValue(currentValue),
+                        spec.formatValue(MediaEdits.propertyValue(clip, spec.property, playheadUs)),
                         style = TimecodeStyle,
                         color = FlowColors.Accent,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(FlowColors.Graphite)
-                            .padding(horizontal = spacing.sm, vertical = 2.dp),
                     )
-
                     Spacer(Modifier.width(spacing.sm))
-
                     KeyframeDiamondButton(
                         filled = hasKeyframeHere,
-                        contentDescription = if (hasKeyframeHere) {
-                            "Quitar keyframe de ${spec.label}"
-                        } else {
-                            "Añadir keyframe de ${spec.label}"
-                        },
-                        onClick = {
-                            selectedProperty = spec.property
-                            onAction(EditorAction.ToggleKeyframe(clip.id, spec.property))
-                        },
+                        contentDescription = if (hasKeyframeHere) "Quitar keyframe de ${spec.label}" else "Añadir keyframe de ${spec.label}",
+                        onClick = { onAction(EditorAction.ToggleKeyframe(clip.id, spec.property)) },
                     )
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun MotionValue(label: String, value: String) {
+    Column(
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(FlowColors.Slate)
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+    ) {
+        Text(label, style = FlowTypography.labelSmall, color = FlowColors.TextSecondary)
+        Text(value, style = TimecodeStyle, color = FlowColors.Accent)
     }
 }
 

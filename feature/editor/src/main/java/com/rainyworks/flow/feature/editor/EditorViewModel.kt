@@ -171,7 +171,7 @@ class EditorViewModel(
                 MediaEdits.setTransformAt(it, action.clipId, action.transform, _state.value.playheadUs)
             }
             is EditorAction.SetOpacity -> drag("opacity-${action.clipId}", action.final) {
-                MediaEdits.setOpacity(it, action.clipId, action.opacity)
+                MediaEdits.setOpacityAt(it, action.clipId, action.opacity, _state.value.playheadUs)
             }
             is EditorAction.SetAspectRatio -> current?.let { apply(Edits.setAspectRatio(it, action.ratio)) }
             is EditorAction.SetBackground -> current?.let { apply(Edits.setBackground(it, action.background)) }
@@ -237,11 +237,25 @@ class EditorViewModel(
                 Edits.updateClip(project, action.clipId) { it.copy(mask = action.mask) }
             }
             is EditorAction.ToggleKeyframe -> current?.let {
-                apply(MediaEdits.toggleKeyframe(it, action.clipId, action.property, _state.value.playheadUs))
+                val playhead = _state.value.playheadUs
+                apply(
+                    if (action.property in MediaEdits.MOTION_PROPERTIES) {
+                        MediaEdits.toggleMotionKeyframe(it, action.clipId, playhead)
+                    } else {
+                        MediaEdits.toggleKeyframe(it, action.clipId, action.property, playhead)
+                    },
+                )
             }
             is EditorAction.SetKeyframeEasing -> current?.let {
                 val clip = it.findClip(action.clipId)?.second ?: return@let
-                apply(MediaEdits.setKeyframeEasing(it, action.clipId, action.property, action.timeUs - clip.startUs, action.easing))
+                val relative = action.timeUs - clip.startUs
+                apply(
+                    if (action.property in MediaEdits.MOTION_PROPERTIES) {
+                        MediaEdits.setMotionEasing(it, action.clipId, relative, action.easing)
+                    } else {
+                        MediaEdits.setKeyframeEasing(it, action.clipId, action.property, relative, action.easing)
+                    },
+                )
             }
             is EditorAction.JumpToKeyframe -> current?.findClip(action.clipId)?.second?.let { clip ->
                 val playhead = _state.value.playheadUs

@@ -27,7 +27,7 @@ class KeyframeEditsTest {
         p = MediaEdits.setTransformAt(p, id, Transform(scale = 2f, offsetX = 0.3f), 2_000_000)
         val clip = p.findClip(id)!!.second
         assertEquals(1f, clip.transform.scale, 0f)
-        assertEquals(0.3f, clip.transform.offsetX, 0f)
+        assertEquals(0.3f, MediaEdits.propertyValue(clip, AnimatedProperty.OFFSET_X, 2_000_000), 1e-4f)
         assertEquals(2, clip.keyframes[AnimatedProperty.SCALE]!!.size)
         assertEquals(1.5f, MediaEdits.propertyValue(clip, AnimatedProperty.SCALE, 1_000_000), 1e-4f)
     }
