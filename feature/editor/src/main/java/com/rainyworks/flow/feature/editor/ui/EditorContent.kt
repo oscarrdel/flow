@@ -1,5 +1,8 @@
 package com.rainyworks.flow.feature.editor.ui
 
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onSizeChanged
+import com.rainyworks.flow.core.designsystem.components.rememberGlassBackdrop
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Path
@@ -241,26 +244,52 @@ fun EditorContent(
     }
 
     /** [sheetMaxHeight] caps an open panel (landscape), which then scrolls, so the timeline stays visible. */
+    val timelineBackdrop = rememberGlassBackdrop()
+    var toolbarHeight by remember { mutableStateOf(0.dp) }
+    val density = LocalDensity.current
     val controls: @Composable ColumnScope.(sheetMaxHeight: Dp?) -> Unit = { sheetMaxHeight ->
-        EditorTimeline(
-            project = state.project,
-            playheadUs = playheadProvider,
-            selectedClipId = state.selectedClipId,
-            pixelsPerSecond = state.pixelsPerSecond,
-            onAction = dispatch,
-            mediaSource = mediaSource,
+        val activeSheet = state.activeSheet
+        // Without a panel the tool bar floats over the bottom of the timeline glass, and the
+        // tracks scrolling under it show through blurred.
+        val floatingToolbar = activeSheet == null
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f)
-                .padding(horizontal = 10.dp)
-                .padding(top = 6.dp)
-                .glass(TimelineGlassShape)
-                .clip(TimelineGlassShape)
-                .papelPicado()
-                .padding(top = 10.dp),
-        )
+                .weight(1f),
+        ) {
+            EditorTimeline(
+                project = state.project,
+                playheadUs = playheadProvider,
+                selectedClipId = state.selectedClipId,
+                pixelsPerSecond = state.pixelsPerSecond,
+                onAction = dispatch,
+                mediaSource = mediaSource,
+                bottomInset = if (floatingToolbar) toolbarHeight else 0.dp,
+                backdrop = timelineBackdrop,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 10.dp)
+                    .padding(top = 6.dp)
+                    .glass(TimelineGlassShape)
+                    .clip(TimelineGlassShape)
+                    .papelPicado()
+                    .padding(top = 10.dp),
+            )
+            if (floatingToolbar) {
+                EditorBottomToolbar(
+                    selectedClipId = state.selectedClipId,
+                    selectedClipKind = selectedClip?.kind,
+                    selectedTrackKind = selection?.first?.kind,
+                    selectedClipHasAudio = selectedClip?.hasEditableAudio() == true,
+                    onAction = dispatch,
+                    backdrop = timelineBackdrop,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .onSizeChanged { toolbarHeight = with(density) { it.height.toDp() } },
+                )
+            }
+        }
 
-        val activeSheet = state.activeSheet
         if (activeSheet != null) {
             EditorActiveSheet(
                 sheet = activeSheet,
@@ -270,14 +299,6 @@ fun EditorContent(
                 modifier = if (sheetMaxHeight == null) Modifier else Modifier
                     .heightIn(max = sheetMaxHeight)
                     .verticalScroll(rememberScrollState()),
-            )
-        } else {
-            EditorBottomToolbar(
-                selectedClipId = state.selectedClipId,
-                selectedClipKind = selectedClip?.kind,
-                selectedTrackKind = selection?.first?.kind,
-                selectedClipHasAudio = selectedClip?.hasEditableAudio() == true,
-                onAction = dispatch,
             )
         }
     }

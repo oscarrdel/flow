@@ -1,5 +1,21 @@
 package com.rainyworks.flow.core.designsystem.components
 
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.layer.GraphicsLayer
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.BlurEffect
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.composed
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.Stable
+import android.os.Build
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -32,16 +48,74 @@ import com.rainyworks.flow.core.designsystem.theme.FlowColors
 val GlassShape = RoundedCornerShape(24.dp)
 
 /**
- * A pane of glass: a translucent fill brighter at the top, a sheen along the upper part, a rim
- * that catches the light at the top-left edge and fades away, and a soft shadow underneath.
- * Works over the aurora on every Android version. [tint] colors the glass (for primary
- * buttons); [elevation] lifts it off what is behind.
+ * What a pane of glass blurs. The source content is recorded into [layer] where it is drawn;
+ * glass over it draws the same layer blurred. [origin] is where the source sits on screen.
+ */
+@Stable
+class GlassBackdrop internal constructor(internal val layer: GraphicsLayer) {
+    internal var origin by mutableStateOf(Offset.Zero)
+}
+
+@Composable
+fun rememberGlassBackdrop(): GlassBackdrop {
+    val layer = rememberGraphicsLayer()
+    return remember(layer) { GlassBackdrop(layer) }
+}
+
+/**
+ * Marks this content as what [backdrop] glass blurs. Bands of [hideTop] and [hideBottom] are
+ * left undrawn here because glass covers them and shows the content blurred instead; drawing
+ * it sharp underneath would show through the translucent glass.
+ */
+fun Modifier.glassBackdropSource(
+    backdrop: GlassBackdrop,
+    hideTop: Dp = 0.dp,
+    hideBottom: Dp = 0.dp,
+): Modifier = this
+    .onGloballyPositioned { backdrop.origin = it.positionInRoot() }
+    .drawWithContent {
+        backdrop.layer.record { this@drawWithContent.drawContent() }
+        val top = hideTop.toPx()
+        val bottom = size.height - hideBottom.toPx()
+        if (bottom > top) {
+            clipRect(top = top, bottom = bottom) { drawLayer(backdrop.layer) }
+        }
+    }
+
+private class GlassPosition {
+    var origin = Offset.Zero
+}
+
+/**
+ * A pane of glass: what is behind it blurred ([backdrop], Android 12 and later), a translucent
+ * fill brighter at the top, a sheen along the upper part, a rim that catches the light at the
+ * top-left edge and fades away, and a soft shadow underneath. [tint] colors the glass (for
+ * primary buttons); [elevation] lifts it off what is behind.
  */
 fun Modifier.glass(
     shape: Shape = GlassShape,
     tint: Color? = null,
     elevation: Dp = 10.dp,
     strong: Boolean = false,
+    backdrop: GlassBackdrop? = null,
+): Modifier = if (backdrop == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+    glassPane(shape, tint, elevation, strong, null, null)
+} else {
+    composed {
+        val position = remember { GlassPosition() }
+        this
+            .onGloballyPositioned { position.origin = it.positionInRoot() }
+            .glassPane(shape, tint, elevation, strong, backdrop, position)
+    }
+}
+
+private fun Modifier.glassPane(
+    shape: Shape,
+    tint: Color?,
+    elevation: Dp,
+    strong: Boolean,
+    backdrop: GlassBackdrop?,
+    position: GlassPosition?,
 ): Modifier = this
     .then(if (elevation > 0.dp) Modifier.shadow(elevation, shape, clip = false, ambientColor = FlowColors.GlassShadow, spotColor = FlowColors.GlassShadow) else Modifier)
     .drawWithCache {
@@ -64,8 +138,23 @@ fun Modifier.glass(
             end = Offset(size.width, size.height),
         )
         val rimWidth = 1.dp.toPx()
+        val blurred = if (backdrop != null) {
+            obtainGraphicsLayer().apply {
+                val radius = GLASS_BLUR.toPx()
+                renderEffect = BlurEffect(radius, radius, TileMode.Decal)
+            }
+        } else {
+            null
+        }
         onDrawWithContent {
             clipPath(path) {
+                if (blurred != null && backdrop != null && position != null) {
+                    val offset = backdrop.origin - position.origin
+                    blurred.record {
+                        translate(offset.x, offset.y) { drawLayer(backdrop.layer) }
+                    }
+                    drawLayer(blurred)
+                }
                 drawRect(fill)
                 drawRect(sheen)
             }
@@ -73,6 +162,8 @@ fun Modifier.glass(
             drawOutline(outline, rim, style = Stroke(rimWidth))
         }
     }
+
+private val GLASS_BLUR = 18.dp
 
 /**
  * The light behind the glass: marigold, rosa mexicano and turquoise glows drifting slowly over

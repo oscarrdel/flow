@@ -1,5 +1,9 @@
 package com.rainyworks.flow.feature.home.ui
 
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import com.rainyworks.flow.core.designsystem.components.glassBackdropSource
+import com.rainyworks.flow.core.designsystem.components.rememberGlassBackdrop
 import androidx.compose.ui.graphics.Color
 import com.rainyworks.flow.core.designsystem.components.FlowAurora
 import com.rainyworks.flow.core.designsystem.components.glass
@@ -91,6 +95,9 @@ fun HomeContent(
     var projectToRename by remember { mutableStateOf<ProjectSummary?>(null) }
     var projectToDelete by remember { mutableStateOf<ProjectSummary?>(null) }
 
+    val backdrop = rememberGlassBackdrop()
+    val gridState = rememberLazyGridState()
+    val scrolled by remember { derivedStateOf { gridState.firstVisibleItemIndex > 0 || gridState.firstVisibleItemScrollOffset > 0 } }
     Box(modifier.fillMaxSize().background(FlowColors.Carbon)) {
     FlowAurora()
     Scaffold(
@@ -98,6 +105,11 @@ fun HomeContent(
         containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
+                modifier = if (scrolled) {
+                    Modifier.glass(RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp), elevation = 12.dp, backdrop = backdrop)
+                } else {
+                    Modifier
+                },
                 title = {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -155,16 +167,19 @@ fun HomeContent(
             )
         },
     ) { innerPadding ->
+        // The grid runs under the top bar, which blurs it once the list has scrolled.
+        val topInset = innerPadding.calculateTopPadding()
         LazyVerticalGrid(
             columns = GridCells.Adaptive(minSize = 164.dp),
+            state = gridState,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
+                .glassBackdropSource(backdrop, hideTop = if (scrolled) topInset else 0.dp),
             contentPadding = PaddingValues(
                 start = spacing.lg,
                 end = spacing.lg,
-                top = spacing.sm,
-                bottom = spacing.xxl,
+                top = topInset + spacing.sm,
+                bottom = innerPadding.calculateBottomPadding() + spacing.xxl,
             ),
             horizontalArrangement = Arrangement.spacedBy(spacing.md),
             verticalArrangement = Arrangement.spacedBy(spacing.md),

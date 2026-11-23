@@ -1,5 +1,6 @@
 package com.rainyworks.flow.feature.editor.ui
 
+import com.rainyworks.flow.core.designsystem.components.GlassBackdrop
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
@@ -77,6 +78,7 @@ internal fun EditorBottomToolbar(
     modifier: Modifier = Modifier,
     selectedTrackKind: TrackKind? = null,
     selectedClipHasAudio: Boolean = selectedClipKind == ClipKind.AUDIO || selectedClipKind == ClipKind.VIDEO,
+    backdrop: GlassBackdrop? = null,
 ) {
     val spacing = FlowTheme.spacing
     val clipTools = remember(selectedClipKind, selectedTrackKind, selectedClipHasAudio) {
@@ -87,7 +89,7 @@ internal fun EditorBottomToolbar(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 10.dp, vertical = spacing.sm)
-            .glass(RoundedCornerShape(30.dp))
+            .glass(RoundedCornerShape(30.dp), backdrop = backdrop)
             .clip(RoundedCornerShape(30.dp))
             .padding(vertical = spacing.xs),
         verticalAlignment = Alignment.CenterVertically,

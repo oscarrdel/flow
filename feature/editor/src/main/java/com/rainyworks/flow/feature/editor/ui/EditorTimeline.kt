@@ -1,5 +1,7 @@
 package com.rainyworks.flow.feature.editor.ui
 
+import com.rainyworks.flow.core.designsystem.components.glassBackdropSource
+import com.rainyworks.flow.core.designsystem.components.GlassBackdrop
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.Canvas
@@ -133,6 +135,8 @@ internal fun EditorTimeline(
     onAction: (EditorAction) -> Unit,
     mediaSource: TimelineMediaSource,
     modifier: Modifier = Modifier,
+    bottomInset: Dp = 0.dp,
+    backdrop: GlassBackdrop? = null,
 ) {
     val density = LocalDensity.current
     val spacing = FlowTheme.spacing
@@ -268,8 +272,9 @@ internal fun EditorTimeline(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
+                    .then(if (backdrop != null) Modifier.glassBackdropSource(backdrop, hideBottom = bottomInset) else Modifier)
                     .verticalScroll(tracksScrollState)
-                    .padding(vertical = spacing.sm),
+                    .padding(top = spacing.sm, bottom = spacing.sm + bottomInset),
                 verticalArrangement = Arrangement.spacedBy(spacing.sm),
             ) {
                 val tracks = project?.tracks ?: listOf(Track.main())
@@ -314,7 +319,8 @@ internal fun EditorTimeline(
         FixedCenterPlayhead(
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .fillMaxHeight(),
+                .fillMaxHeight()
+                .padding(bottom = bottomInset),
         )
     }
 }
