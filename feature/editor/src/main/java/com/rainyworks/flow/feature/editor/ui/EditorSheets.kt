@@ -86,6 +86,11 @@ internal fun EditorActiveSheet(
     modifier: Modifier = Modifier,
 ) {
     when (sheet) {
+        EditorSheet.SplitScreen -> SplitScreenSheetPanel(
+            state = state,
+            onAction = onAction,
+            modifier = modifier,
+        )
         EditorSheet.KenBurns -> KenBurnsSheetPanel(
             state = state,
             onAction = onAction,

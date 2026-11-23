@@ -207,6 +207,10 @@ class EditorViewModel(
             EditorAction.DismissSheet -> _state.update { it.copy(activeSheet = null) }
             EditorAction.NoticeShown -> _state.update { it.copy(notice = null) }
             is EditorAction.AutoColor -> autoColor(action.clipId)
+            is EditorAction.ApplySplitLayout -> current?.let {
+                val arranged = com.rainyworks.flow.core.model.SplitScreen.apply(it, action.layout, _state.value.playheadUs)
+                if (arranged == it) notify(strings.splitNeedsTwo) else apply(arranged)
+            }
             is EditorAction.NormalizeVolume -> normalizeVolume(action.clipIds)
             is EditorAction.SetColorGrade -> drag("grade-${action.clipId}", action.final) {
                 MediaEdits.setColorGrade(it, action.clipId, action.grade)
@@ -925,6 +929,7 @@ class EditorViewModel(
             ClipTool.KenBurns -> _state.update { it.copy(activeSheet = EditorSheet.KenBurns) }
             ClipTool.Beats -> detectBeats(clipId)
             ClipTool.CutToBeats -> cutToBeats(clipId)
+            ClipTool.SplitScreen -> _state.update { it.copy(activeSheet = EditorSheet.SplitScreen) }
             ClipTool.AutoCaptions -> autoCaptions(clipId)
             ClipTool.Reverse -> reverseClip(clipId)
             ClipTool.Duplicate -> apply(Edits.duplicate(project, clipId))
@@ -1087,6 +1092,7 @@ data class EditorStrings(
     val autoColorFailed: String = "No se pudo analizar el clip",
     val normalizing: String = "Igualando el volumen…",
     val cutToBeats: String = "Los cortes ahora caen en el ritmo",
+    val splitNeedsTwo: String = "Se necesitan al menos dos imágenes en el cursor",
     val nothingToCut: String = "No hay golpes alcanzables para los clips de la pista principal",
     val noAudioToNormalize: String = "No hay clips con sonido",
     /** Format string with one %d for the number of clips. */

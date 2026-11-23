@@ -68,7 +68,7 @@ data class BackgroundTask(val label: String, val progress: Float?)
 enum class EditorSheet {
     Speed, Volume, AspectRatio, Background, Transform, Crop, Opacity,
     Filters, Adjust, Curves, Hsl, Text, Subtitles,
-    Chroma, Blend, Mask, Keyframes, AudioEffects, Fades, Effects, Transition, InOut, Stickers, KenBurns,
+    Chroma, Blend, Mask, Keyframes, AudioEffects, Fades, Effects, Transition, InOut, Stickers, KenBurns, SplitScreen,
 }
 
 /** Global tools shown in the bottom bar when no clip is selected. */
@@ -77,7 +77,7 @@ enum class GlobalTool { Edit, Audio, Text, Overlay, Stickers, Effects, Filters, 
 /** Tools shown in the bottom bar when a clip is selected. */
 enum class ClipTool {
     Split, Speed, Volume, Transform, Opacity, Duplicate, Delete, Replace, Freeze, Reverse, Crop, Chroma, Mask, Animation,
-    Filters, Adjust, EditText, Blend, AudioEffects, Fades, Extract, Effects, InOut, KenBurns, Beats, CutToBeats, AutoCaptions,
+    Filters, Adjust, EditText, Blend, AudioEffects, Fades, Extract, Effects, InOut, KenBurns, Beats, CutToBeats, AutoCaptions, SplitScreen,
 }
 
 sealed interface EditorAction {
@@ -130,6 +130,8 @@ sealed interface EditorAction {
     data class SetColorGrade(val clipId: String, val grade: ColorGrade, val final: Boolean) : EditorAction
     /** Sets the volume of [clipIds] (every clip with sound when null) to a common loudness. */
     data class NormalizeVolume(val clipIds: List<String>?) : EditorAction
+    /** Arranges the pictures at the playhead into a split-screen layout. */
+    data class ApplySplitLayout(val layout: com.rainyworks.flow.core.model.SplitLayout) : EditorAction
     /** One-tap color fix from sample frames of the clip. */
     data class AutoColor(val clipId: String) : EditorAction
     /** Copies the grade of [clipId] to every visual clip of the main track. */
