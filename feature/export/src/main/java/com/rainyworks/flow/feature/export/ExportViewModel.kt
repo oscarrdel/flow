@@ -12,12 +12,14 @@ import com.rainyworks.flow.core.engine.audio.AudioExportSettings
 import com.rainyworks.flow.core.engine.audio.AudioFormat
 import com.rainyworks.flow.core.engine.gif.GifSettings
 import com.rainyworks.flow.core.model.Project
+import com.rainyworks.flow.core.model.ProjectSlice
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+import kotlin.math.roundToLong
 
 enum class ExportResolution(val heightPx: Int, val label: String) {
     P480(480, "480p"),
@@ -141,12 +143,20 @@ data class ExportUiState(
     val gifEndUs: Long = 0L,
     val gifMaxSidePx: Int = 480,
     val gifFrameRate: Int = 12,
+    val useRange: Boolean = false,
+    val rangeStartUs: Long = 0L,
+    val rangeEndUs: Long = 0L,
     val estimatedBytes: Long = 0L,
     val freeBytes: Long = 0L,
     val phase: ExportPhase = ExportPhase.Configuring,
     internal val preferredPreset: ExportPreset? = null,
 ) {
     val hasEnoughSpace: Boolean get() = freeBytes == 0L || estimatedBytes * 11 / 10 < freeBytes
+
+    val rangeDurationUs: Long get() = (rangeEndUs - rangeStartUs).coerceAtLeast(0L)
+
+    val isFragmentActive: Boolean
+        get() = useRange && kind != ExportKind.Gif && (project?.durationUs ?: 0L) > 0L
 
     val isProjectVertical: Boolean
         get() = project?.canvas?.aspectRatio?.let { it.height > it.width } ?: true
@@ -188,8 +198,18 @@ class ExportViewModel(
     init {
         viewModelScope.launch {
             val project = repository.load(projectId)
-            val gifEnd = minOf(project?.durationUs ?: 0L, DEFAULT_GIF_US)
-            _state.update { it.copy(project = project, freeBytes = freeBytes(), gifStartUs = 0L, gifEndUs = gifEnd) }
+            val durationUs = project?.durationUs ?: 0L
+            val gifEnd = minOf(durationUs, DEFAULT_GIF_US)
+            _state.update {
+                it.copy(
+                    project = project,
+                    freeBytes = freeBytes(),
+                    gifStartUs = 0L,
+                    gifEndUs = gifEnd,
+                    rangeStartUs = 0L,
+                    rangeEndUs = durationUs,
+                )
+            }
             recompute()
         }
         viewModelScope.launch {
@@ -245,13 +265,47 @@ class ExportViewModel(
         state.copy(gifStartUs = start, gifEndUs = end)
     }
 
+    fun setUseRange(enabled: Boolean) = updateSettings { state ->
+        val duration = state.project?.durationUs ?: 0L
+        if (enabled && state.rangeEndUs <= state.rangeStartUs) {
+            state.copy(useRange = true, rangeStartUs = 0L, rangeEndUs = duration)
+        } else {
+            state.copy(useRange = enabled)
+        }
+    }
+
+    fun setRange(startUs: Long, endUs: Long) = updateSettings { state ->
+        val duration = state.project?.durationUs ?: 0L
+        if (duration <= MIN_RANGE_US) {
+            return@updateSettings state.copy(rangeStartUs = 0L, rangeEndUs = duration)
+        }
+        val rawStart = startUs.coerceIn(0L, duration)
+        val rawEnd = endUs.coerceIn(0L, duration)
+        val (start, end) = if (rawEnd - rawStart >= MIN_RANGE_US) {
+            rawStart to rawEnd
+        } else if (rawStart != state.rangeStartUs) {
+            val clampedStart = rawStart.coerceAtMost(rawEnd - MIN_RANGE_US).coerceAtLeast(0L)
+            clampedStart to (clampedStart + MIN_RANGE_US).coerceAtMost(duration)
+        } else {
+            val clampedEnd = rawEnd.coerceAtLeast(rawStart + MIN_RANGE_US).coerceAtMost(duration)
+            (clampedEnd - MIN_RANGE_US).coerceAtLeast(0L) to clampedEnd
+        }
+        state.copy(rangeStartUs = start, rangeEndUs = end)
+    }
+
     fun start() {
         val current = _state.value
         val project = current.project ?: return
         when (current.kind) {
-            ExportKind.Video -> manager.start(project, current.settings(project))
+            ExportKind.Video -> {
+                val target = current.targetProject(project)
+                manager.start(target, current.settings(target))
+            }
             ExportKind.Gif -> manager.start(project, current.gifSettings())
-            ExportKind.Audio -> manager.start(project, current.audioSettings())
+            ExportKind.Audio -> {
+                val target = current.targetProject(project)
+                manager.start(target, current.audioSettings())
+            }
         }
     }
 
@@ -273,11 +327,30 @@ class ExportViewModel(
         val state = _state.value
         val project = state.project ?: return
         val bytes = when (state.kind) {
-            ExportKind.Video -> manager.estimateSizeBytes(project, state.settings(project))
+            ExportKind.Video -> scaleForFragment(
+                fullBytes = manager.estimateSizeBytes(project, state.settings(project)),
+                projectDurationUs = project.durationUs,
+                state = state,
+            )
             ExportKind.Gif -> if (state.gifEndUs > state.gifStartUs) manager.estimateSizeBytes(project, state.gifSettings()) else 0L
-            ExportKind.Audio -> manager.estimateSizeBytes(project, state.audioSettings())
+            ExportKind.Audio -> scaleForFragment(
+                fullBytes = manager.estimateSizeBytes(project, state.audioSettings()),
+                projectDurationUs = project.durationUs,
+                state = state,
+            )
         }
         _state.update { it.copy(estimatedBytes = bytes) }
+    }
+
+    private fun scaleForFragment(fullBytes: Long, projectDurationUs: Long, state: ExportUiState): Long {
+        if (!state.isFragmentActive || projectDurationUs <= 0L) return fullBytes
+        return (fullBytes * (state.rangeDurationUs.toDouble() / projectDurationUs)).roundToLong()
+    }
+
+    private fun ExportUiState.targetProject(project: Project): Project {
+        if (!isFragmentActive) return project
+        return ProjectSlice.slice(project, rangeStartUs, rangeEndUs)
+            .copy(name = "${project.name} (fragmento)")
     }
 
     private fun ExportUiState.settings(project: Project): ExportSettings {
@@ -316,3 +389,4 @@ internal fun roundCustomBitrateMbps(mbps: Float): Float {
 
 private const val MIN_GIF_US = 500_000L
 private const val DEFAULT_GIF_US = 5_000_000L
+private const val MIN_RANGE_US = 500_000L

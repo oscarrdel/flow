@@ -43,6 +43,7 @@ import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -123,6 +124,9 @@ private fun ExportSettingsPanel(state: ExportUiState, viewModel: ExportViewModel
                 ExportKind.Video -> VideoOptions(state, viewModel)
                 ExportKind.Gif -> GifOptions(state, viewModel)
                 ExportKind.Audio -> AudioOptions(state, viewModel)
+            }
+            if (state.kind != ExportKind.Gif) {
+                FragmentRangeSection(state, viewModel)
             }
         }
         Column(Modifier.padding(vertical = FlowTheme.spacing.lg)) {
@@ -322,6 +326,47 @@ private fun PresetSection(
                 text = "TikTok y Reels se ven mejor en formato 9:16; cámbialo en el editor.",
                 style = MaterialTheme.typography.bodySmall,
                 color = FlowColors.TextSecondary,
+            )
+        }
+    }
+}
+
+@Composable
+private fun FragmentRangeSection(state: ExportUiState, viewModel: ExportViewModel) {
+    val duration = state.project?.durationUs ?: 0L
+    Column(verticalArrangement = Arrangement.spacedBy(FlowTheme.spacing.sm)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Exportar solo un fragmento", style = MaterialTheme.typography.titleSmall)
+            Switch(
+                checked = state.useRange,
+                onCheckedChange = viewModel::setUseRange,
+                enabled = duration > 0L,
+            )
+        }
+        if (state.useRange && duration > 0L) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "${Timecode.format(state.rangeStartUs)} – ${Timecode.format(state.rangeEndUs)}",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Text(
+                    "Duración: ${Timecode.format(state.rangeDurationUs)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = FlowColors.TextSecondary,
+                )
+            }
+            RangeSlider(
+                value = state.rangeStartUs.toFloat()..state.rangeEndUs.toFloat(),
+                onValueChange = { viewModel.setRange(it.start.toLong(), it.endInclusive.toLong()) },
+                valueRange = 0f..duration.toFloat(),
             )
         }
     }
