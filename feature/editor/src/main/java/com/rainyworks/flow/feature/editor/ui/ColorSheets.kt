@@ -566,12 +566,21 @@ internal fun AdjustSheetPanel(
         subtitle = "Doble toque en un control para restablecerlo",
         onDismiss = { onAction(EditorAction.DismissSheet) },
         headerTrailing = {
-            SheetActionChip(
-                label = "Restablecer todo",
-                icon = Icons.Rounded.RestartAlt,
-                enabled = target.enabled && !grade.adjustments.isIdentity,
-                onClick = { target.emit(grade.copy(adjustments = ColorAdjustments()), true) },
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(spacing.xs)) {
+                // One tap: tones, color cast and saturation from a few frames of the clip.
+                SheetActionChip(
+                    label = "Auto",
+                    icon = Icons.Rounded.AutoFixHigh,
+                    enabled = target.enabled && target.clip?.media != null,
+                    onClick = { target.clip?.let { onAction(EditorAction.AutoColor(it.id)) } },
+                )
+                SheetActionChip(
+                    label = "Restablecer todo",
+                    icon = Icons.Rounded.RestartAlt,
+                    enabled = target.enabled && !grade.adjustments.isIdentity,
+                    onClick = { target.emit(grade.copy(adjustments = ColorAdjustments()), true) },
+                )
+            }
         },
         modifier = modifier,
     ) {

@@ -203,6 +203,7 @@ class EditorViewModel(
             is EditorAction.OpenSheet -> _state.update { it.copy(activeSheet = action.sheet) }
             EditorAction.DismissSheet -> _state.update { it.copy(activeSheet = null) }
             EditorAction.NoticeShown -> _state.update { it.copy(notice = null) }
+            is EditorAction.AutoColor -> autoColor(action.clipId)
             is EditorAction.SetColorGrade -> drag("grade-${action.clipId}", action.final) {
                 MediaEdits.setColorGrade(it, action.clipId, action.grade)
             }
@@ -378,6 +379,34 @@ class EditorViewModel(
             if (taskToken !== token) return@launch
             taskToken = null
             notify(if (saved) strings.frameSaved else strings.frameFailed)
+        }
+    }
+
+    private fun autoColor(clipId: String) {
+        val clip = history?.present?.findClip(clipId)?.second ?: return
+        val media = clip.media ?: return
+        viewModelScope.launch {
+            // Start, middle and end of what is on the timeline.
+            val times = if (media.type == MediaType.VIDEO) {
+                listOf(0.15, 0.5, 0.85).map { clip.sourceTimeAt(clip.startUs + (clip.durationUs * it).toLong()) }
+            } else listOf(0L)
+            val pixels = times.mapNotNull { thumbnails.frameAt(media, it, AUTO_COLOR_HEIGHT) }.flatMap { bitmap ->
+                IntArray(bitmap.width * bitmap.height).also { bitmap.getPixels(it, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height) }.asList()
+            }
+            if (pixels.isEmpty()) {
+                notify(strings.autoColorFailed)
+                return@launch
+            }
+            val found = com.rainyworks.flow.core.model.AutoColor.analyze(pixels.toIntArray())
+            val project = history?.present ?: return@launch
+            val current = project.findClip(clipId)?.second ?: return@launch
+            val adjustments = current.color.adjustments.copy(
+                brightness = found.brightness,
+                contrast = found.contrast,
+                saturation = found.saturation,
+                temperature = found.temperature,
+            )
+            apply(Edits.updateClip(project, clipId) { it.copy(color = it.color.copy(adjustments = adjustments)) })
         }
     }
 
@@ -985,5 +1014,9 @@ data class EditorStrings(
     val noSpeechFound: String = "No se encontró voz en este clip",
     val captionsUnavailable: String = "Este teléfono no puede reconocer voz de archivos. Requiere Android 13 y el reconocimiento de voz de Google con el idioma descargado.",
     val captionsFailed: String = "No se pudieron generar los subtítulos",
+    val autoColorFailed: String = "No se pudo analizar el clip",
     val captionsLanguageDownloading: String = "Descargando el idioma para reconocer voz; inténtalo de nuevo en unos minutos",
 )
+
+/** Sample frames for the automatic color fix are analyzed at this height. */
+private const val AUTO_COLOR_HEIGHT = 180
