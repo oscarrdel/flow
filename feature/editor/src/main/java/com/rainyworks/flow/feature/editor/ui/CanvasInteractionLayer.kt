@@ -1,5 +1,15 @@
 package com.rainyworks.flow.feature.editor.ui
 
+import androidx.compose.ui.graphics.drawscope.clipRect
+import kotlin.math.roundToInt
+import kotlin.math.atan2
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.TextMeasurer
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -41,8 +51,12 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 private val CENTER_SNAP_DISTANCE = 8.dp
-private val HIT_SLOP = 20.dp
-private const val ROTATION_SNAP_DEGREES = 4f
+private val HIT_SLOP = 28.dp
+/** Touch radius of the corner and rotation handles. */
+private val HANDLE_TOUCH = 26.dp
+private val ROTATE_HANDLE_GAP = 30.dp
+/** Within this many degrees of a right angle the clip stays put at the right angle. */
+private const val ROTATION_SNAP_DEGREES = 6f
 
 private const val SAFE_TOP_FRACTION = 0.12f
 private const val SAFE_BOTTOM_FRACTION = 0.20f
@@ -84,6 +98,9 @@ internal fun CanvasInteractionLayer(
     var gestureMask by remember { mutableStateOf<Mask?>(null) }
     var guideVertical by remember { mutableStateOf(false) }
     var guideHorizontal by remember { mutableStateOf(false) }
+    var rotationGuide by remember { mutableStateOf(false) }
+    var gestureLabel by remember { mutableStateOf<String?>(null) }
+    val textMeasurer = rememberTextMeasurer()
 
     val clipId = clip?.id
     val gestureModifier = if (clipId == null) {
@@ -170,51 +187,82 @@ internal fun CanvasInteractionLayer(
                     return@awaitEachGesture
                 }
 
-                val startedOnClip = clipFrame.contains(down.position, hitSlopPx)
+                val handleSlopPx = HANDLE_TOUCH.toPx()
+                val rotateKnob = rotateHandleCenter(clipFrame, ROTATE_HANDLE_GAP.toPx(), canvasSize)
+                val mode = when {
+                    (down.position - rotateKnob).getDistance() <= handleSlopPx -> DragMode.Rotate
+                    clipFrame.corners().any { (down.position - it).getDistance() <= handleSlopPx } -> DragMode.Resize
+                    clipFrame.contains(down.position, hitSlopPx) -> DragMode.Move
+                    else -> DragMode.None
+                }
+                val center = clipFrame.center
+                val startAngle = angleDegrees(down.position - center)
+                val startDistance = (down.position - center).getDistance().coerceAtLeast(1f)
 
                 var active = false
+                var pinching = false
                 var slop = Offset.Zero
                 var rawOffsetX = startTransform.offsetX
                 var rawOffsetY = startTransform.offsetY
                 var rawScale = startTransform.scale
                 var rawRotation = startTransform.rotationDegrees
-                var rotationSnapped = false
                 var latest = startTransform
 
                 do {
                     val event = awaitPointerEvent()
-                    val pressedCount = event.changes.count { it.pressed }
+                    val pressed = event.changes.filter { it.pressed }
 
-                    if (!active) {
-                        if (pressedCount >= 2) {
-                            active = true
-                        } else if (startedOnClip) {
-                            slop += event.calculatePan()
-                            if (slop.getDistance() > viewConfiguration.touchSlop) active = true
-                        }
+                    if (pressed.size >= 2 && !pinching) {
+                        // A second finger always means pinch: continue from where the drag is.
+                        pinching = true
+                        active = true
+                    }
+                    if (!active && mode != DragMode.None) {
+                        slop += event.calculatePan()
+                        if (slop.getDistance() > viewConfiguration.touchSlop) active = true
                     }
 
-                    if (active && pressedCount > 0) {
-                        val pan = event.calculatePan()
-                        rawOffsetX += pan.x / canvasSize.width
-                        rawOffsetY += pan.y / canvasSize.height
-                        rawScale = (rawScale * event.calculateZoom())
-                            .coerceIn(MIN_TRANSFORM_SCALE, MAX_TRANSFORM_SCALE)
-                        rawRotation += event.calculateRotation()
+                    if (active && pressed.isNotEmpty()) {
+                        val pointer = pressed.first().position
+                        when {
+                            pinching || mode == DragMode.Move -> {
+                                val pan = event.calculatePan()
+                                rawOffsetX += pan.x / canvasSize.width
+                                rawOffsetY += pan.y / canvasSize.height
+                                rawScale = (rawScale * event.calculateZoom())
+                                    .coerceIn(MIN_TRANSFORM_SCALE, MAX_TRANSFORM_SCALE)
+                                rawRotation += event.calculateRotation()
+                            }
+                            mode == DragMode.Rotate -> {
+                                rawRotation = startTransform.rotationDegrees +
+                                    shortestDelta(startAngle, angleDegrees(pointer - center))
+                            }
+                            mode == DragMode.Resize -> {
+                                val ratio = (pointer - center).getDistance() / startDistance
+                                rawScale = (startTransform.scale * ratio)
+                                    .coerceIn(MIN_TRANSFORM_SCALE, MAX_TRANSFORM_SCALE)
+                            }
+                        }
 
-                        val snapX = abs(rawOffsetX * canvasSize.width) < snapDistancePx
-                        val snapY = abs(rawOffsetY * canvasSize.height) < snapDistancePx
-                        val snappedRotation = snapToRightAngle(rawRotation, ROTATION_SNAP_DEGREES)
+                        val moving = pinching || mode == DragMode.Move
+                        val snapX = moving && abs(rawOffsetX * canvasSize.width) < snapDistancePx
+                        val snapY = moving && abs(rawOffsetY * canvasSize.height) < snapDistancePx
+                        val turning = pinching || mode == DragMode.Rotate
+                        val snappedRotation = if (turning) {
+                            snapToRightAngle(rawRotation, ROTATION_SNAP_DEGREES)
+                        } else {
+                            null
+                        }
 
                         val enteredGuide = (snapX && !guideVertical) ||
                             (snapY && !guideHorizontal) ||
-                            (snappedRotation != null && !rotationSnapped)
+                            (snappedRotation != null && !rotationGuide)
                         if (enteredGuide) {
                             haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         }
                         guideVertical = snapX
                         guideHorizontal = snapY
-                        rotationSnapped = snappedRotation != null
+                        rotationGuide = snappedRotation != null
 
                         latest = startTransform.copy(
                             offsetX = if (snapX) 0f else rawOffsetX,
@@ -223,6 +271,11 @@ internal fun CanvasInteractionLayer(
                             rotationDegrees = snappedRotation ?: normalizeDegrees(rawRotation),
                         )
                         gestureTransform = latest
+                        gestureLabel = when {
+                            turning -> "${latest.rotationDegrees.roundToInt()}°"
+                            mode == DragMode.Resize -> "${(latest.scale * 100).roundToInt()} %"
+                            else -> null
+                        }
                         currentOnAction(EditorAction.SetTransform(target.id, latest, final = false))
                         event.changes.forEach { if (it.positionChanged()) it.consume() }
                     }
@@ -231,6 +284,8 @@ internal fun CanvasInteractionLayer(
                 if (active) {
                     currentOnAction(EditorAction.SetTransform(target.id, latest, final = true))
                 }
+                rotationGuide = false
+                gestureLabel = null
                 gestureTransform = null
                 guideVertical = false
                 guideHorizontal = false
@@ -248,7 +303,12 @@ internal fun CanvasInteractionLayer(
         val (renderedTransform, opacity) = ClipAnimations.renderedTransform(target, now)
         val transform = gestureTransform ?: renderedTransform
         val frame = frameForClip(target, transform, size, textRenderer)
-        drawClipFrame(frame, alpha = opacity.coerceIn(0.35f, 1f))
+        drawClipFrame(frame, alpha = opacity.coerceIn(0.35f, 1f), showHandles = !editMask)
+        if (rotationGuide) drawRightAngleCross(frame)
+        gestureLabel?.let { label ->
+            val knob = rotateHandleCenter(frame, ROTATE_HANDLE_GAP.toPx(), size)
+            drawGestureLabel(textMeasurer, label, Offset(knob.x, knob.y - 26.dp.toPx()))
+        }
 
         if (editMask) {
             val maskToDraw = gestureMask ?: target.animatedMaskAt(now)
@@ -288,7 +348,44 @@ private fun frameForClip(
 ): ClipFrame = textRenderer.frameFor(clip, transform, canvasSize)
     ?: clipFrameFor(canvasSize, clip.media, transform)
 
-private fun DrawScope.drawClipFrame(frame: ClipFrame, alpha: Float = 1f) {
+private enum class DragMode { None, Move, Resize, Rotate }
+
+/**
+ * Knob above the top edge of the frame, turned with the clip. When that spot is off the canvas
+ * (a clip filling the frame) it moves below the bottom edge, and failing that just inside the top.
+ */
+private fun rotateHandleCenter(frame: ClipFrame, gap: Float, canvas: Size): Offset {
+    val rad = frame.rotationDegrees * (PI.toFloat() / 180f)
+    // "Up" in the clip's own space is (0, -1), rotated clockwise by the clip angle.
+    val up = Offset(sin(rad), -cos(rad))
+    val half = frame.height / 2f
+    val margin = 12f
+    fun inside(p: Offset) = p.x in margin..(canvas.width - margin) && p.y in margin..(canvas.height - margin)
+    val above = frame.center + up * (half + gap)
+    if (inside(above)) return above
+    val below = frame.center - up * (half + gap)
+    if (inside(below)) return below
+    return frame.center + up * (half - gap).coerceAtLeast(0f)
+}
+
+/** Point on the frame edge facing the knob, where its stem starts. */
+private fun stemStart(frame: ClipFrame, knob: Offset): Offset {
+    val v = knob - frame.center
+    val len = v.getDistance().coerceAtLeast(1f)
+    return frame.center + v * ((frame.height / 2f).coerceAtMost(len) / len)
+}
+
+private fun angleDegrees(v: Offset): Float = atan2(v.y, v.x) * (180f / PI.toFloat())
+
+/** Signed change from [from] to [to] in (-180, 180], so crossing ±180 does not jump. */
+private fun shortestDelta(from: Float, to: Float): Float {
+    var d = (to - from) % 360f
+    if (d > 180f) d -= 360f
+    if (d <= -180f) d += 360f
+    return d
+}
+
+private fun DrawScope.drawClipFrame(frame: ClipFrame, alpha: Float = 1f, showHandles: Boolean = true) {
     val corners = frame.corners()
     val outline = Path().apply {
         moveTo(corners[0].x, corners[0].y)
@@ -297,17 +394,85 @@ private fun DrawScope.drawClipFrame(frame: ClipFrame, alpha: Float = 1f) {
     }
     drawPath(outline, color = Color.Black.copy(alpha = 0.35f * alpha), style = Stroke(width = 3.dp.toPx()))
     drawPath(outline, color = FlowColors.Accent.copy(alpha = alpha), style = Stroke(width = 1.5.dp.toPx()))
+    if (!showHandles) return
 
-    val handleRadius = 5.dp.toPx()
+    // Corners: drag to resize.
+    val handleRadius = 7.dp.toPx()
     for (corner in corners) {
+        drawCircle(color = Color.Black.copy(alpha = 0.3f * alpha), radius = handleRadius + 1.5.dp.toPx(), center = corner)
         drawCircle(color = Color.White.copy(alpha = alpha), radius = handleRadius, center = corner)
         drawCircle(
             color = FlowColors.Accent.copy(alpha = alpha),
             radius = handleRadius,
             center = corner,
-            style = Stroke(width = 1.5.dp.toPx()),
+            style = Stroke(width = 2.dp.toPx()),
         )
     }
+
+    // Stem and knob: drag to turn.
+    val knob = rotateHandleCenter(frame, ROTATE_HANDLE_GAP.toPx(), size)
+    drawLine(FlowColors.Accent.copy(alpha = alpha), stemStart(frame, knob), knob, strokeWidth = 1.5.dp.toPx())
+    val knobRadius = 11.dp.toPx()
+    drawCircle(color = Color.Black.copy(alpha = 0.3f * alpha), radius = knobRadius + 1.5.dp.toPx(), center = knob)
+    drawCircle(color = FlowColors.Accent.copy(alpha = alpha), radius = knobRadius, center = knob)
+    // Circular arrow glyph.
+    val r = 5.dp.toPx()
+    drawArc(
+        color = FlowColors.OnAccent.copy(alpha = alpha),
+        startAngle = -60f,
+        sweepAngle = 280f,
+        useCenter = false,
+        topLeft = Offset(knob.x - r, knob.y - r),
+        size = Size(r * 2, r * 2),
+        style = Stroke(width = 1.8.dp.toPx()),
+    )
+    val tipAngle = (-60f) * (PI.toFloat() / 180f)
+    val tip = Offset(knob.x + r * cos(tipAngle), knob.y + r * sin(tipAngle))
+    val arrow = Path().apply {
+        moveTo(tip.x + 2.5.dp.toPx(), tip.y - 1.dp.toPx())
+        lineTo(tip.x - 1.dp.toPx(), tip.y - 2.5.dp.toPx())
+        lineTo(tip.x + 0.5.dp.toPx(), tip.y + 2.5.dp.toPx())
+        close()
+    }
+    drawPath(arrow, color = FlowColors.OnAccent.copy(alpha = alpha))
+}
+
+/** Cross through the clip center along the screen axes: the clip sits exactly at a right angle. */
+private fun DrawScope.drawRightAngleCross(frame: ClipFrame) {
+    val reach = maxOf(frame.width, frame.height) / 2f + 36.dp.toPx()
+    val c = frame.center
+    val stroke = 1.5.dp.toPx()
+    val color = FlowColors.Turquesa
+    clipRect {
+        for ((a, b) in listOf(
+            Offset(c.x - reach, c.y) to Offset(c.x + reach, c.y),
+            Offset(c.x, c.y - reach) to Offset(c.x, c.y + reach),
+        )) {
+            drawLine(Color.Black.copy(alpha = 0.4f), a, b, strokeWidth = stroke + 2.dp.toPx())
+            drawLine(color, a, b, strokeWidth = stroke)
+        }
+        drawCircle(color, radius = 4.dp.toPx(), center = c)
+    }
+}
+
+private fun DrawScope.drawGestureLabel(measurer: TextMeasurer, text: String, anchor: Offset) {
+    val layout = measurer.measure(
+        text,
+        style = TextStyle(color = FlowColors.OnAccent, fontSize = 12.sp, fontWeight = FontWeight.Bold),
+    )
+    val padX = 8.dp.toPx()
+    val padY = 3.dp.toPx()
+    val w = layout.size.width + padX * 2
+    val h = layout.size.height + padY * 2
+    val left = (anchor.x - w / 2f).coerceIn(0f, (size.width - w).coerceAtLeast(0f))
+    val top = (anchor.y - h / 2f).coerceIn(0f, (size.height - h).coerceAtLeast(0f))
+    drawRoundRect(
+        color = FlowColors.Accent,
+        topLeft = Offset(left, top),
+        size = Size(w, h),
+        cornerRadius = CornerRadius(h / 2f),
+    )
+    drawText(layout, topLeft = Offset(left + padX, top + padY))
 }
 
 private fun DrawScope.drawMaskFrame(clipFrame: ClipFrame, mask: Mask) {
