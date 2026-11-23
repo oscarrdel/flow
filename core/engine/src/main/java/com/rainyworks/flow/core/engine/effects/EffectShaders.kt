@@ -146,6 +146,69 @@ internal object EffectShaders {
             }
             return vec4(c.rgb + add * uParams.x, c.a);
         """
+        // intensity, speed
+        "vhs" -> """
+            float t = uTime * mix(0.5, 3.0, uParams.y);
+            // Wobbling lines, a slow tracking band, color bleed and scanlines.
+            float wobble = noise1(uv.y * 40.0 + t * 8.0) * 0.004 * uParams.x;
+            float band = smoothstep(0.05, 0.0, abs(fract(uv.y - t * 0.12) - 0.5) - 0.03);
+            vec2 q = uv + vec2(wobble + band * 0.02 * uParams.x, 0.0);
+            float bleed = 0.006 * uParams.x;
+            vec4 c = sampleClamped(q);
+            c.r = sampleClamped(q + vec2(bleed, 0.0)).r;
+            c.b = sampleClamped(q - vec2(bleed, 0.0)).b;
+            float scan = 0.92 + 0.08 * sin(uv.y * uSize.y * 1.6);
+            vec3 tinted = mix(c.rgb, c.rgb * vec3(1.05, 0.98, 0.9), uParams.x) * mix(1.0, scan, uParams.x);
+            tinted += band * 0.12 * uParams.x * (hash(floor(uv * uSize * 0.5) + t) - 0.3);
+            return vec4(tinted, c.a);
+        """
+        // mode: 0 left half mirrored, 1 top half mirrored, 2 four-way
+        "mirror" -> """
+            vec2 q = uv;
+            if (uParams.x < 0.5) {
+                q.x = q.x > 0.5 ? 1.0 - q.x : q.x;
+            } else if (uParams.x < 1.5) {
+                q.y = q.y < 0.5 ? 1.0 - q.y : q.y;
+            } else {
+                q = vec2(q.x > 0.5 ? 1.0 - q.x : q.x, q.y < 0.5 ? 1.0 - q.y : q.y);
+            }
+            return texture2D(uInput, q);
+        """
+        // segments, speed
+        "kaleidoscope" -> """
+            vec2 aspect = vec2(uSize.x / uSize.y, 1.0);
+            vec2 d = (uv - 0.5) * aspect;
+            float segments = floor(mix(3.0, 12.0, uParams.x));
+            float slice = 6.2831853 / segments;
+            float angle = atan(d.y, d.x) + uTime * mix(0.0, 0.8, uParams.y);
+            angle = mod(angle, slice);
+            angle = abs(angle - slice * 0.5);
+            vec2 p = vec2(cos(angle), sin(angle)) * length(d);
+            return sampleClamped(p / aspect + 0.5);
+        """
+        // intensity, size
+        "grain" -> """
+            vec4 c = texture2D(uInput, uv);
+            vec2 cell = floor(uv * uSize / mix(1.0, 4.0, uParams.y));
+            float n = hash(cell + fract(uTime * 24.0) * 97.0) - 0.5;
+            // Stronger in mid tones, like film.
+            float y = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
+            float weight = 1.0 - abs(y - 0.5) * 1.2;
+            return vec4(c.rgb + n * 0.35 * uParams.x * weight, c.a);
+        """
+        // intensity, speed
+        "lightleak" -> """
+            vec4 c = texture2D(uInput, uv);
+            float t = uTime * mix(0.05, 0.6, uParams.y);
+            vec2 aspect = vec2(uSize.x / uSize.y, 1.0);
+            // Two warm glows drifting slowly from the edges, added like light.
+            vec2 a = vec2(0.1 + 0.3 * sin(t), 0.2 + 0.2 * cos(t * 0.7));
+            vec2 b = vec2(0.9 - 0.25 * cos(t * 0.8), 0.85 - 0.2 * sin(t * 1.1));
+            float ga = exp(-pow(length((uv - a) * aspect) * 2.2, 2.0));
+            float gb = exp(-pow(length((uv - b) * aspect) * 2.6, 2.0));
+            vec3 light = ga * vec3(1.0, 0.45, 0.15) + gb * vec3(1.0, 0.75, 0.35);
+            return vec4(c.rgb + light * 0.9 * uParams.x * c.a, c.a);
+        """
         else -> "return texture2D(uInput, uv);"
     }
 }

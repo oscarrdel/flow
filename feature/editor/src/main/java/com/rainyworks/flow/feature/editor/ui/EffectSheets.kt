@@ -41,6 +41,11 @@ import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.FilterFrames
 import androidx.compose.material.icons.rounded.Flare
+import androidx.compose.material.icons.rounded.WbSunny
+import androidx.compose.material.icons.rounded.Grain
+import androidx.compose.material.icons.rounded.FilterVintage
+import androidx.compose.material.icons.rounded.Flip
+import androidx.compose.material.icons.rounded.Tv
 import androidx.compose.material.icons.rounded.GridOn
 import androidx.compose.material.icons.rounded.Vibration
 import androidx.compose.material.icons.rounded.ZoomIn
@@ -121,6 +126,11 @@ internal fun effectIconFor(type: String): ImageVector = when (type) {
     "zoom.dynamic" -> Icons.Rounded.ZoomIn
     "flare" -> Icons.Rounded.Flare
     "particles" -> Icons.Rounded.AutoAwesome
+    "vhs" -> Icons.Rounded.Tv
+    "mirror" -> Icons.Rounded.Flip
+    "kaleidoscope" -> Icons.Rounded.FilterVintage
+    "grain" -> Icons.Rounded.Grain
+    "lightleak" -> Icons.Rounded.WbSunny
     else -> Icons.Rounded.AutoAwesome
 }
 
@@ -128,6 +138,11 @@ internal fun formatEffectParamValue(param: EffectParam, value: Float): String = 
     param.key == "angle" || param.max == 360f -> "${value.roundToInt()}°"
     param.min == 0f && param.max == 1f -> "${(value * 100f).roundToInt()}%"
     param.key == "style" -> "${value.roundToInt()}"
+    param.key == "mode" -> when (value.roundToInt()) {
+        0 -> "Horizontal"
+        1 -> "Vertical"
+        else -> "Cuatro"
+    }
     else -> String.format(Locale.US, "%.2f", value)
 }
 

@@ -54,6 +54,20 @@ object EffectCatalog {
             listOf(intensity, EffectParam("x", "Posición", 0f, 1f, 0.7f)),
         ),
         EffectDefinition("particles", "Partículas", EffectCategory.LIGHT, listOf(intensity, speed, size)),
+        EffectDefinition("vhs", "VHS", EffectCategory.STYLIZE, listOf(intensity, speed)),
+        EffectDefinition(
+            "mirror", "Espejo", EffectCategory.STYLIZE,
+            listOf(EffectParam("mode", "Modo", 0f, 2f, 0f)),
+        ),
+        EffectDefinition(
+            "kaleidoscope", "Caleidoscopio", EffectCategory.STYLIZE,
+            listOf(EffectParam("segments", "Segmentos", 0f, 1f, 0.4f), speed),
+        ),
+        EffectDefinition("grain", "Grano de película", EffectCategory.STYLIZE, listOf(intensity, size)),
+        EffectDefinition(
+            "lightleak", "Fuga de luz", EffectCategory.LIGHT,
+            listOf(intensity, speed),
+        ),
     )
 
     private val byType = all.associateBy { it.type }
