@@ -1,5 +1,7 @@
 package com.rainyworks.flow.feature.editor.ui
 
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -170,7 +172,6 @@ internal fun EditorTimeline(
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
-            .background(FlowColors.Carbon)
             .clipToBounds()
             .pointerInput(Unit) {
                 detectTapGestures(
@@ -320,23 +321,30 @@ internal fun EditorTimeline(
 
 @Composable
 private fun FixedCenterPlayhead(modifier: Modifier = Modifier) {
-    Canvas(modifier = modifier.width(14.dp)) {
+    Canvas(modifier = modifier.width(24.dp)) {
         val centerX = size.width / 2f
-        val capPath = Path().apply {
-            moveTo(centerX - 5.dp.toPx(), 0f)
-            lineTo(centerX + 5.dp.toPx(), 0f)
-            lineTo(centerX + 5.dp.toPx(), 6.dp.toPx())
-            lineTo(centerX, 11.dp.toPx())
-            lineTo(centerX - 5.dp.toPx(), 6.dp.toPx())
-            close()
-        }
-        drawPath(path = capPath, color = Color.White)
+        val top = 4.dp.toPx()
+        val color = FlowColors.Accent
+        // Glow first, then the line and its round cap on top.
         drawLine(
-            color = Color.White,
-            start = Offset(centerX, 10.dp.toPx()),
+            brush = Brush.horizontalGradient(
+                listOf(color.copy(alpha = 0f), color.copy(alpha = 0.35f), color.copy(alpha = 0f)),
+                startX = centerX - 8.dp.toPx(),
+                endX = centerX + 8.dp.toPx(),
+            ),
+            start = Offset(centerX, top),
+            end = Offset(centerX, size.height),
+            strokeWidth = 16.dp.toPx(),
+        )
+        drawLine(
+            color = color,
+            start = Offset(centerX, top),
             end = Offset(centerX, size.height),
             strokeWidth = 2.dp.toPx(),
+            cap = StrokeCap.Round,
         )
+        drawCircle(color.copy(alpha = 0.35f), radius = 9.dp.toPx(), center = Offset(centerX, top + 6.dp.toPx()))
+        drawCircle(color, radius = 6.dp.toPx(), center = Offset(centerX, top + 6.dp.toPx()))
     }
 }
 
@@ -365,8 +373,7 @@ private fun TimelineRuler(
     }
 
     Canvas(
-        modifier = modifier
-            .background(FlowColors.Graphite),
+        modifier = modifier,
     ) {
         val playhead = playheadUs()
         val range = visibleRangeUs()
@@ -470,7 +477,7 @@ private fun MainTrackLane(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(MAIN_TRACK_HEIGHT)
-                .background(FlowColors.Graphite.copy(alpha = 0.55f)),
+                .background(Color.White.copy(alpha = 0.06f)),
         )
 
         track.clips.forEachIndexed { index, clip ->
@@ -698,7 +705,7 @@ private fun SecondaryTrackLane(
             .fillMaxWidth()
             .height(SECONDARY_TRACK_HEIGHT)
             .zIndex(if (draggingClipId != null) 20f else 0f)
-            .background(FlowColors.Graphite.copy(alpha = 0.35f)),
+            .background(Color.White.copy(alpha = 0.04f)),
     ) {
         for (clip in track.clips) {
             key(clip.id) {

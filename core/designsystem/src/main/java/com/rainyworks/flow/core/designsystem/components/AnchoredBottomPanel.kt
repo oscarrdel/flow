@@ -1,7 +1,6 @@
 package com.rainyworks.flow.core.designsystem.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -27,6 +26,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.rainyworks.flow.core.designsystem.theme.FlowColors
 import com.rainyworks.flow.core.designsystem.theme.FlowTheme
@@ -46,19 +46,18 @@ fun FlowBottomPanel(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val spacing = FlowTheme.spacing
-    val shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp)
+    val shape = RoundedCornerShape(30.dp)
     val interactionSource = remember { MutableInteractionSource() }
 
     Column(
         modifier = modifier
             .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 6.dp)
+            // Glass over a solid violet base: panels hold dense controls, so they stay legible
+            // over whatever the timeline shows behind them.
+            .background(FlowColors.Graphite.copy(alpha = 0.72f), shape)
+            .glass(shape, strong = true, elevation = 16.dp)
             .clip(shape)
-            .background(FlowColors.Graphite.copy(alpha = 0.94f))
-            .border(
-                width = 1.dp,
-                color = FlowColors.Outline.copy(alpha = 0.6f),
-                shape = shape,
-            )
             // Consume taps inside the panel so they don't fall through to the timeline behind it.
             .clickable(
                 interactionSource = interactionSource,
@@ -76,10 +75,10 @@ fun FlowBottomPanel(
         ) {
             Spacer(
                 modifier = Modifier
-                    .width(32.dp)
-                    .height(3.dp)
+                    .width(40.dp)
+                    .height(5.dp)
                     .clip(CircleShape)
-                    .background(FlowColors.Outline),
+                    .background(Color.White.copy(alpha = 0.45f)),
             )
         }
 
@@ -92,7 +91,7 @@ fun FlowBottomPanel(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = title,
-                    style = FlowTypography.titleSmall,
+                    style = FlowTypography.titleLarge,
                     color = FlowColors.TextPrimary,
                 )
                 if (!subtitle.isNullOrBlank()) {
@@ -109,19 +108,20 @@ fun FlowBottomPanel(
             }
             IconButton(
                 onClick = onDismiss,
-                modifier = Modifier.size(34.dp),
+                modifier = Modifier.size(38.dp).glass(CircleShape, tint = FlowColors.Accent, elevation = 6.dp, strong = true),
             ) {
                 Icon(
                     imageVector = Icons.Rounded.Check,
                     contentDescription = "Cerrar panel",
-                    tint = FlowColors.Accent,
+                    tint = FlowColors.OnAccent,
                 )
             }
         }
 
         HorizontalDivider(
-            color = FlowColors.Steel.copy(alpha = 0.8f),
+            color = Color.White.copy(alpha = 0.10f),
             thickness = 1.dp,
+            modifier = Modifier.padding(horizontal = spacing.lg),
         )
 
         Column(

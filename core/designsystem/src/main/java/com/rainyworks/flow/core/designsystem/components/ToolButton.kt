@@ -39,7 +39,7 @@ fun FlowToolButton(
     tint: Color? = null,
 ) {
     val spacing = FlowTheme.spacing
-    val shape = RoundedCornerShape(12.dp)
+    val shape = RoundedCornerShape(18.dp)
     val contentColor = when {
         !enabled -> FlowColors.TextTertiary
         selected -> FlowColors.Accent
@@ -47,7 +47,7 @@ fun FlowToolButton(
         else -> FlowColors.TextPrimary
     }
     val containerColor = when {
-        selected -> FlowColors.AccentDim.copy(alpha = 0.45f)
+        selected -> Color.White.copy(alpha = 0.14f)
         else -> Color.Transparent
     }
 
@@ -58,7 +58,7 @@ fun FlowToolButton(
             .background(containerColor)
             .then(
                 if (selected) {
-                    Modifier.border(1.dp, FlowColors.Accent.copy(alpha = 0.7f), shape)
+                    Modifier.border(1.dp, Color.White.copy(alpha = 0.35f), shape)
                 } else {
                     Modifier
                 }

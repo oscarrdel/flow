@@ -56,6 +56,8 @@ private val components = listOf(
     Component("Room", "Apache 2.0", "licenses/apache-2.0.txt"),
     Component("Coil", "Apache 2.0", "licenses/apache-2.0.txt"),
     Component("Kotlin y kotlinx", "Apache 2.0", "licenses/apache-2.0.txt"),
+    Component("Bricolage Grotesque", "SIL Open Font License 1.1", "licenses/bricolage-grotesque-ofl.txt",
+        "Tipografía de la interfaz, de Mathieu Triay."),
 )
 
 private const val SOURCE_URL = "https://github.com/oscarrdel/flow"

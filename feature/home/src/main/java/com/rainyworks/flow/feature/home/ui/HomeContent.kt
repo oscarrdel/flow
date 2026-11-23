@@ -1,5 +1,8 @@
 package com.rainyworks.flow.feature.home.ui
 
+import androidx.compose.ui.graphics.Color
+import com.rainyworks.flow.core.designsystem.components.FlowAurora
+import com.rainyworks.flow.core.designsystem.components.glass
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -88,9 +91,11 @@ fun HomeContent(
     var projectToRename by remember { mutableStateOf<ProjectSummary?>(null) }
     var projectToDelete by remember { mutableStateOf<ProjectSummary?>(null) }
 
+    Box(modifier.fillMaxSize().background(FlowColors.Carbon)) {
+    FlowAurora()
     Scaffold(
-        modifier = modifier.fillMaxSize(),
-        containerColor = FlowColors.Carbon,
+        modifier = Modifier.fillMaxSize(),
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
                 title = {
@@ -100,13 +105,13 @@ fun HomeContent(
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(10.dp)
+                                .size(12.dp)
                                 .clip(CircleShape)
-                                .background(FlowColors.Accent),
+                                .background(Brush.linearGradient(listOf(FlowColors.Accent, FlowColors.Rosa))),
                         )
                         Text(
                             text = "Flow",
-                            style = FlowTypography.titleLarge,
+                            style = FlowTypography.displaySmall,
                             color = FlowColors.TextPrimary,
                         )
                     }
@@ -143,7 +148,8 @@ fun HomeContent(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = FlowColors.Carbon,
+                    containerColor = Color.Transparent,
+                    scrolledContainerColor = Color.Transparent,
                     titleContentColor = FlowColors.TextPrimary,
                 ),
             )
@@ -185,8 +191,8 @@ fun HomeContent(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            text = "Borradores",
-                            style = FlowTypography.titleMedium,
+                            text = "Tus proyectos",
+                            style = FlowTypography.headlineSmall,
                             color = FlowColors.TextPrimary,
                         )
                         Text(
@@ -264,6 +270,7 @@ fun HomeContent(
         )
     }
 }
+}
 
 @Composable
 private fun NewProjectBanner(
@@ -271,25 +278,13 @@ private fun NewProjectBanner(
     modifier: Modifier = Modifier,
 ) {
     val spacing = FlowTheme.spacing
-    val shape = RoundedCornerShape(18.dp)
+    val shape = RoundedCornerShape(28.dp)
 
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .glass(shape, elevation = 14.dp)
             .clip(shape)
-            .background(
-                brush = Brush.horizontalGradient(
-                    colors = listOf(
-                        FlowColors.AccentDim,
-                        FlowColors.Slate,
-                    ),
-                ),
-            )
-            .border(
-                width = 1.dp,
-                color = FlowColors.Accent.copy(alpha = 0.55f),
-                shape = shape,
-            )
             .clickable(onClick = onClick)
             .padding(horizontal = spacing.lg, vertical = spacing.lg),
         verticalAlignment = Alignment.CenterVertically,
@@ -297,13 +292,13 @@ private fun NewProjectBanner(
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = "Nuevo proyecto",
-                style = FlowTypography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                text = "¿Qué vas a contar hoy?",
+                style = FlowTypography.titleLarge,
                 color = FlowColors.TextPrimary,
             )
             Spacer(Modifier.height(spacing.xs))
             Text(
-                text = "Importa clips, audio y crea tu edición multipista",
+                text = "Junta clips, fotos y música; lo demás lo armas aquí.",
                 style = FlowTypography.bodySmall,
                 color = FlowColors.TextSecondary,
             )
@@ -312,11 +307,12 @@ private fun NewProjectBanner(
         Button(
             onClick = onClick,
             colors = ButtonDefaults.buttonColors(
-                containerColor = FlowColors.Accent,
+                containerColor = Color.Transparent,
                 contentColor = FlowColors.OnAccent,
             ),
-            shape = RoundedCornerShape(12.dp),
-            contentPadding = PaddingValues(horizontal = spacing.md, vertical = spacing.sm),
+            shape = CircleShape,
+            contentPadding = PaddingValues(horizontal = spacing.lg, vertical = spacing.sm),
+            modifier = Modifier.glass(CircleShape, tint = FlowColors.Accent, elevation = 8.dp, strong = true),
         ) {
             Icon(
                 imageVector = Icons.Rounded.Add,
@@ -325,7 +321,7 @@ private fun NewProjectBanner(
             )
             Spacer(Modifier.width(spacing.xs))
             Text(
-                text = "Nuevo proyecto",
+                text = "Nuevo",
                 style = FlowTypography.labelLarge,
             )
         }
@@ -342,7 +338,7 @@ private fun ProjectDraftCard(
     modifier: Modifier = Modifier,
 ) {
     val spacing = FlowTheme.spacing
-    val cardShape = RoundedCornerShape(14.dp)
+    val cardShape = RoundedCornerShape(24.dp)
     var menuExpanded by remember { mutableStateOf(false) }
 
     val durationText = remember(project.durationUs) {
@@ -355,10 +351,10 @@ private fun ProjectDraftCard(
     Surface(
         modifier = modifier
             .fillMaxWidth()
+            .glass(cardShape)
             .clip(cardShape)
-            .border(1.dp, FlowColors.Steel, cardShape)
             .clickable(onClick = onOpen),
-        color = FlowColors.Graphite,
+        color = Color.Transparent,
         shape = cardShape,
     ) {
         Column {
@@ -366,7 +362,7 @@ private fun ProjectDraftCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(16f / 10f)
-                    .background(FlowColors.Slate),
+                    .background(Color.White.copy(alpha = 0.06f)),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
@@ -393,9 +389,9 @@ private fun ProjectDraftCard(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(spacing.sm)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(FlowColors.Black.copy(alpha = 0.78f))
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                        .clip(CircleShape)
+                        .background(FlowColors.Black.copy(alpha = 0.55f))
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
                 )
             }
 
@@ -513,17 +509,14 @@ private fun EmptyDraftsState(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(FlowColors.Graphite)
-            .border(1.dp, FlowColors.Steel, RoundedCornerShape(16.dp))
+            .glass(RoundedCornerShape(28.dp))
             .padding(horizontal = spacing.xl, vertical = spacing.xxl),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(
             modifier = Modifier
                 .size(64.dp)
-                .clip(CircleShape)
-                .background(FlowColors.Slate),
+                .glass(CircleShape, elevation = 0.dp),
             contentAlignment = Alignment.Center,
         ) {
             Icon(

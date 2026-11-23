@@ -8,6 +8,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
+import com.rainyworks.flow.core.designsystem.components.glass
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -83,7 +86,9 @@ internal fun EditorBottomToolbar(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .background(FlowColors.Graphite)
+            .padding(horizontal = 10.dp, vertical = spacing.sm)
+            .glass(RoundedCornerShape(30.dp))
+            .clip(RoundedCornerShape(30.dp))
             .padding(vertical = spacing.xs),
         verticalAlignment = Alignment.CenterVertically,
     ) {

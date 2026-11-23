@@ -2,32 +2,51 @@ package com.rainyworks.flow.core.designsystem.theme
 
 import androidx.compose.ui.graphics.Color
 
+/**
+ * Cempasúchil: a deep violet night lit by marigold, rosa mexicano and turquoise, with
+ * surfaces of glass. Names keep their roles (backgrounds, surfaces, text, accent).
+ */
 object FlowColors {
-    val Black = Color(0xFF07080A)
-    val Carbon = Color(0xFF0E0F12)
-    val Graphite = Color(0xFF16181C)
-    val Slate = Color(0xFF1F2227)
-    val Steel = Color(0xFF2A2E35)
-    val Outline = Color(0xFF3A3F47)
+    /** Behind the video itself. */
+    val Black = Color(0xFF0D0517)
+    /** Screen ground under the aurora. */
+    val Carbon = Color(0xFF1A0B2B)
+    /** Solid surfaces where glass is not possible (menus, dialogs). */
+    val Graphite = Color(0xFF26123A)
+    val Slate = Color(0xFF331B4C)
+    val Steel = Color(0xFF42295E)
+    val Outline = Color(0xFF5C4280)
 
-    val TextPrimary = Color(0xFFF2F3F5)
-    val TextSecondary = Color(0xFFA6ABB4)
-    val TextTertiary = Color(0xFF6C717A)
+    val TextPrimary = Color(0xFFFFF4E8)
+    val TextSecondary = Color(0xFFD2BCE3)
+    val TextTertiary = Color(0xFF9580AE)
 
-    val Accent = Color(0xFF4BE3C1)
-    val AccentDim = Color(0xFF1E6B5B)
-    val OnAccent = Color(0xFF00201A)
+    /** Cempasúchil. */
+    val Accent = Color(0xFFFFB01F)
+    val AccentDim = Color(0xFF5B2B5E)
+    val OnAccent = Color(0xFF2A1040)
 
-    val Keyframe = Color(0xFFFFB547)
-    val Marker = Color(0xFFFF6B8A)
-    val Error = Color(0xFFFF5A5F)
+    /** Rosa mexicano. */
+    val Rosa = Color(0xFFFF2D92)
+    /** Turquesa. */
+    val Turquesa = Color(0xFF12D3C2)
 
-    val TrackVideo = Color(0xFF3B6FD9)
-    val TrackOverlay = Color(0xFF8A5CF5)
-    val TrackText = Color(0xFFE0A33A)
-    val TrackAudio = Color(0xFF2FB57A)
-    val TrackEffect = Color(0xFFE0558F)
-    val TrackAdjustment = Color(0xFF5BB8D9)
+    val Keyframe = Color(0xFFFF5FAE)
+    val Marker = Color(0xFF12D3C2)
+    val Error = Color(0xFFFF5A6E)
 
-    val Scrim = Color(0xCC07080A)
+    val TrackVideo = Color(0xFF7B5CFF)
+    val TrackOverlay = Color(0xFFB36BFF)
+    val TrackText = Rosa
+    val TrackAudio = Turquesa
+    val TrackEffect = Color(0xFFFF7A3D)
+    val TrackAdjustment = Color(0xFF6FA8FF)
+
+    val Scrim = Color(0xCC0D0517)
+
+    /** Glass: fill at the lit top and at the bottom, and the light caught on its rim. */
+    val GlassTop = Color(0x2EFFFFFF)
+    val GlassBottom = Color(0x12FFFFFF)
+    val GlassRim = Color(0x80FFFFFF)
+    val GlassShadow = Color(0x66060010)
 }

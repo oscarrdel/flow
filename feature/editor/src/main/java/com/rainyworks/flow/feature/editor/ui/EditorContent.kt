@@ -1,5 +1,12 @@
 package com.rainyworks.flow.feature.editor.ui
 
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.shadow
+import com.rainyworks.flow.core.designsystem.components.FlowAurora
+import com.rainyworks.flow.core.designsystem.components.glass
 import androidx.compose.animation.core.animateFloatAsState
 
 import androidx.activity.compose.BackHandler
@@ -244,10 +251,14 @@ fun EditorContent(
             mediaSource = mediaSource,
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f),
+                .weight(1f)
+                .padding(horizontal = 10.dp)
+                .padding(top = 6.dp)
+                .glass(TimelineGlassShape)
+                .clip(TimelineGlassShape)
+                .papelPicado()
+                .padding(top = 10.dp),
         )
-
-        HorizontalDivider(color = FlowColors.Steel, thickness = 1.dp)
 
         val activeSheet = state.activeSheet
         if (activeSheet != null) {
@@ -276,6 +287,7 @@ fun EditorContent(
             .fillMaxSize()
             .background(FlowColors.Carbon),
     ) {
+        FlowAurora(still = state.isPlaying)
         val isLandscape = maxWidth > maxHeight
         val landscapeSheetMax = maxHeight * LANDSCAPE_SHEET_SHARE
 
@@ -287,8 +299,6 @@ fun EditorContent(
                 onAction = dispatch,
             )
 
-            HorizontalDivider(color = FlowColors.Steel, thickness = 1.dp)
-
             if (isLandscape) {
                 Row(
                     modifier = Modifier
@@ -299,8 +309,7 @@ fun EditorContent(
                     Column(
                         modifier = Modifier
                             .weight(0.44f)
-                            .fillMaxHeight()
-                            .background(FlowColors.Black),
+                            .fillMaxHeight(),
                     ) {
                         previewPane(
                             Modifier
@@ -309,8 +318,6 @@ fun EditorContent(
                         )
                         playbackBar()
                     }
-
-                    VerticalDivider(color = FlowColors.Steel, thickness = 1.dp)
 
                     // Right column: wide timeline + contextual toolbar or anchored sheet
                     Column(
@@ -334,8 +341,6 @@ fun EditorContent(
 
                 playbackBar()
 
-                HorizontalDivider(color = FlowColors.Steel, thickness = 1.dp)
-
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -349,6 +354,31 @@ fun EditorContent(
 }
 
 /** True for clips that render pixels on the canvas and can therefore be transformed. */
+private val TimelineGlassShape = RoundedCornerShape(26.dp)
+
+/** A row of papel picado hung along the top edge of the timeline glass. */
+private fun Modifier.papelPicado(): Modifier = drawWithContent {
+    drawContent()
+    val step = 14.dp.toPx()
+    val depth = 8.dp.toPx()
+    val r = 5.5.dp.toPx()
+    val color = FlowColors.Rosa.copy(alpha = 0.85f)
+    var x = 0f
+    while (x < size.width) {
+        val path = Path().apply {
+            moveTo(x, 0f)
+            lineTo(x + step, 0f)
+            lineTo(x + step, depth)
+            // scalloped bottom: a half-circle bite out of each cell
+            arcTo(Rect(x + step / 2 - r, depth - r * 2, x + step / 2 + r, depth), 0f, 180f, false)
+            lineTo(x, depth)
+            close()
+        }
+        drawPath(path, color)
+        x += step
+    }
+}
+
 private fun isVisualClip(track: Track, clip: Clip): Boolean =
     track.kind != TrackKind.AUDIO &&
         clip.kind != ClipKind.AUDIO &&
@@ -369,12 +399,14 @@ private fun EditorTopBar(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(52.dp)
-            .background(FlowColors.Carbon)
-            .padding(horizontal = spacing.sm),
+            .height(60.dp)
+            .padding(horizontal = spacing.md),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(onClick = { onAction(EditorAction.Close) }) {
+        IconButton(
+            onClick = { onAction(EditorAction.Close) },
+            modifier = Modifier.size(42.dp).glass(CircleShape, elevation = 6.dp),
+        ) {
             Icon(
                 imageVector = Icons.Rounded.Close,
                 contentDescription = "Cerrar editor",
@@ -385,11 +417,11 @@ private fun EditorTopBar(
         // Aspect ratio indicator pill opening EditorSheet.AspectRatio
         Row(
             modifier = Modifier
-                .clip(RoundedCornerShape(8.dp))
-                .background(FlowColors.Slate)
-                .border(1.dp, FlowColors.Outline, RoundedCornerShape(8.dp))
+                .padding(start = spacing.sm)
+                .glass(CircleShape, elevation = 6.dp)
+                .clip(CircleShape)
                 .clickable { onAction(EditorAction.OpenSheet(EditorSheet.AspectRatio)) }
-                .padding(horizontal = spacing.sm, vertical = 5.dp),
+                .padding(horizontal = spacing.md, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
@@ -435,12 +467,12 @@ private fun EditorTopBar(
         Button(
             onClick = { onAction(EditorAction.Export) },
             colors = ButtonDefaults.buttonColors(
-                containerColor = FlowColors.Accent,
-                contentColor = FlowColors.OnAccent,
+                containerColor = Color.Transparent,
+                contentColor = Color.White,
             ),
-            shape = RoundedCornerShape(10.dp),
-            contentPadding = PaddingValues(horizontal = spacing.md, vertical = 6.dp),
-            modifier = Modifier.height(34.dp),
+            shape = CircleShape,
+            contentPadding = PaddingValues(horizontal = spacing.lg, vertical = 6.dp),
+            modifier = Modifier.height(40.dp).glass(CircleShape, tint = FlowColors.Rosa, elevation = 8.dp),
         ) {
             Icon(
                 imageVector = Icons.Rounded.IosShare,
@@ -475,7 +507,6 @@ private fun EditorPreviewArea(
 
     BoxWithConstraints(
         modifier = modifier
-            .background(FlowColors.Black)
             .clipToBounds()
             .pointerInput(Unit) {
                 detectTapGestures(onDoubleTap = { onDoubleTap() })
@@ -496,9 +527,10 @@ private fun EditorPreviewArea(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .clip(RoundedCornerShape(4.dp))
+                    .shadow(18.dp, RoundedCornerShape(18.dp), ambientColor = FlowColors.GlassShadow, spotColor = FlowColors.GlassShadow)
+                    .clip(RoundedCornerShape(18.dp))
                     .canvasBackgroundModifier(background)
-                    .border(1.dp, FlowColors.Steel.copy(alpha = 0.7f), RoundedCornerShape(4.dp)),
+                    .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(18.dp)),
                 contentAlignment = Alignment.Center,
             ) {
                 preview(Modifier.fillMaxSize())
@@ -544,9 +576,10 @@ private fun EditorPlaybackBar(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(44.dp)
-            .background(FlowColors.Graphite)
-            .padding(horizontal = spacing.md),
+            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .height(52.dp)
+            .glass(CircleShape)
+            .padding(start = spacing.lg, end = 6.dp),
     ) {
         PlaybackTimecode(
             playheadUs = playheadUs,
@@ -640,7 +673,7 @@ private fun PlaybackTimecode(
                 append(totalFormatted)
             }
         },
-        style = TimecodeStyle,
+        style = TimecodeStyle.copy(fontSize = 15.sp, lineHeight = 18.sp),
         modifier = modifier,
     )
 }
@@ -654,14 +687,14 @@ private fun PlayPauseButton(
     IconButton(
         onClick = onClick,
         modifier = modifier
-            .size(36.dp)
-            .clip(CircleShape)
-            .background(FlowColors.Slate),
+            .size(42.dp)
+            .glass(CircleShape, tint = FlowColors.Accent, elevation = 8.dp, strong = true)
+            .clip(CircleShape),
     ) {
         Icon(
             imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
             contentDescription = if (isPlaying) "Pausar" else "Reproducir",
-            tint = FlowColors.TextPrimary,
+            tint = FlowColors.OnAccent,
             modifier = Modifier.size(22.dp),
         )
     }
