@@ -9,6 +9,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ServiceCompat
@@ -32,12 +33,7 @@ class ExportService : Service() {
             return START_NOT_STICKY
         }
         ensureChannel()
-        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING
-        } else {
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-        }
-        ServiceCompat.startForeground(this, NOTIFICATION_ID, progress(0f, null), type)
+        startForegroundWithAnyType()
         if (!observing) {
             observing = true
             scope.launch {
@@ -52,6 +48,31 @@ class ExportService : Service() {
             }
         }
         return START_NOT_STICKY
+    }
+
+    /**
+     * Some builds refuse a type that the manifest declares and the app holds the permission for
+     * (seen on Samsung Android 17 with mediaProcessing). Try each declared type; if the system
+     * refuses all of them the export still runs while the app is open, just without the
+     * background guarantee, instead of taking the app down.
+     */
+    private fun startForegroundWithAnyType() {
+        val types = buildList {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+                add(ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING)
+            }
+            add(ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            add(ServiceInfo.FOREGROUND_SERVICE_TYPE_MANIFEST)
+        }
+        for (type in types) {
+            try {
+                ServiceCompat.startForeground(this, NOTIFICATION_ID, progress(0f, null), type)
+                return
+            } catch (e: RuntimeException) {
+                Log.w(TAG, "Foreground type $type refused", e)
+            }
+        }
+        Log.w(TAG, "Export runs without a foreground service")
     }
 
     private fun manager(): ExportManager = (application as ExportManagerHolder).exportManager
@@ -117,6 +138,7 @@ class ExportService : Service() {
     }
 
     companion object {
+        private const val TAG = "ExportService"
         private const val CHANNEL_ID = "export"
         private const val NOTIFICATION_ID = 41
         private const val RESULT_NOTIFICATION_ID = 42
