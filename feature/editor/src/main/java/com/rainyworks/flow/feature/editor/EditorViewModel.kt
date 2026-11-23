@@ -23,6 +23,7 @@ import com.rainyworks.flow.core.model.Edits
 import com.rainyworks.flow.core.model.MediaEdits
 import com.rainyworks.flow.core.model.MediaRef
 import com.rainyworks.flow.core.model.MediaType
+import com.rainyworks.flow.core.model.AnimatedProperty
 import com.rainyworks.flow.core.model.Clip
 import com.rainyworks.flow.core.model.Project
 import com.rainyworks.flow.core.model.Timecode
@@ -80,6 +81,8 @@ class EditorViewModel(
     private val saveFrame: (suspend (Project, Long, String) -> Unit)? = null,
     /** Turns a clip's speech into subtitle cues on the timeline; null when unavailable. */
     private val captioner: (suspend (Clip, (Float) -> Unit) -> List<com.rainyworks.flow.core.model.SubtitleCue>)? = null,
+    /** Volume that brings a clip to a common loudness; null when unavailable. */
+    private val loudness: (suspend (Clip) -> Float)? = null,
 ) : ViewModel() {
     private val _state = MutableStateFlow(EditorUiState())
     val state: StateFlow<EditorUiState> = _state.asStateFlow()
@@ -204,6 +207,7 @@ class EditorViewModel(
             EditorAction.DismissSheet -> _state.update { it.copy(activeSheet = null) }
             EditorAction.NoticeShown -> _state.update { it.copy(notice = null) }
             is EditorAction.AutoColor -> autoColor(action.clipId)
+            is EditorAction.NormalizeVolume -> normalizeVolume(action.clipIds)
             is EditorAction.SetColorGrade -> drag("grade-${action.clipId}", action.final) {
                 MediaEdits.setColorGrade(it, action.clipId, action.grade)
             }
@@ -379,6 +383,52 @@ class EditorViewModel(
             if (taskToken !== token) return@launch
             taskToken = null
             notify(if (saved) strings.frameSaved else strings.frameFailed)
+        }
+    }
+
+    private fun normalizeVolume(clipIds: List<String>?) {
+        val measure = loudness ?: return
+        val project = history?.present ?: return
+        val clips = project.tracks.filter { !it.hidden && !it.muted }.flatMap { it.clips }.filter { clip ->
+            (clipIds == null || clip.id in clipIds) && !clip.muted &&
+                (clip.media?.hasAudio == true || clip.media?.type == MediaType.AUDIO)
+        }
+        if (clips.isEmpty()) {
+            notify(strings.noAudioToNormalize)
+            return
+        }
+        if (taskJob?.isActive == true) return
+        preview.pause()
+        val token = Any()
+        taskToken = token
+        fun mine() = taskToken === token
+        taskJob = viewModelScope.launch {
+            _state.update { it.copy(task = BackgroundTask(strings.normalizing, 0f)) }
+            val volumes = mutableMapOf<String, Float>()
+            try {
+                clips.forEachIndexed { index, clip ->
+                    runCatching { measure(clip) }.getOrNull()?.let { volumes[clip.id] = it }
+                    if (mine()) _state.update { s -> s.copy(task = s.task?.copy(progress = (index + 1f) / clips.size)) }
+                }
+            } finally {
+                if (mine()) _state.update { it.copy(task = null) }
+            }
+            if (!mine()) return@launch
+            taskToken = null
+            var updated = history?.present ?: return@launch
+            for ((id, volume) in volumes) {
+                updated = Edits.updateClip(updated, id) { clip ->
+                    // Volume keyframes keep their shape, scaled to the new level.
+                    val keys = clip.keyframes[AnimatedProperty.VOLUME]
+                    val scaled = keys?.map { it.copy(value = (it.value * volume).coerceIn(0f, 2f)) }
+                    clip.copy(
+                        volume = volume,
+                        keyframes = if (scaled != null) clip.keyframes + (AnimatedProperty.VOLUME to scaled) else clip.keyframes,
+                    )
+                }
+            }
+            apply(updated)
+            notify(strings.normalized.format(volumes.size))
         }
     }
 
@@ -1015,6 +1065,10 @@ data class EditorStrings(
     val captionsUnavailable: String = "Este teléfono no puede reconocer voz de archivos. Requiere Android 13 y el reconocimiento de voz de Google con el idioma descargado.",
     val captionsFailed: String = "No se pudieron generar los subtítulos",
     val autoColorFailed: String = "No se pudo analizar el clip",
+    val normalizing: String = "Igualando el volumen…",
+    val noAudioToNormalize: String = "No hay clips con sonido",
+    /** Format string with one %d for the number of clips. */
+    val normalized: String = "Volumen igualado en %d clips",
     val captionsLanguageDownloading: String = "Descargando el idioma para reconocer voz; inténtalo de nuevo en unos minutos",
 )
 

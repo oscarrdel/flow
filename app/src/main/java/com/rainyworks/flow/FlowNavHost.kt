@@ -75,6 +75,7 @@ fun FlowNavHost(container: AppContainer) {
                             beats = { media -> container.beats.detect(media) },
                             saveFrame = { project, atUs, name -> container.frames.saveToGallery(project, atUs, name) },
                             captioner = { clip, progress -> container.captions.captions(clip, onProgress = progress) },
+                            loudness = { clip -> container.loudness.volumeFor(clip) },
                         )
                     }
                 },

@@ -26,6 +26,7 @@ import androidx.compose.material.icons.rounded.Flip
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Rotate90DegreesCw
 import androidx.compose.material.icons.rounded.Timeline
+import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -744,6 +745,22 @@ private fun VolumeSheetPanel(
         },
         modifier = modifier,
     ) {
+        // Bring clips recorded quietly or loudly to the same level.
+        Row(horizontalArrangement = Arrangement.spacedBy(spacing.sm)) {
+            SheetActionChip(
+                label = "Normalizar",
+                icon = Icons.Rounded.GraphicEq,
+                enabled = clipId != null,
+                onClick = { clipId?.let { onAction(EditorAction.NormalizeVolume(listOf(it))) } },
+            )
+            SheetActionChip(
+                label = "Igualar todos",
+                icon = Icons.Rounded.GraphicEq,
+                enabled = state.project != null,
+                onClick = { onAction(EditorAction.NormalizeVolume(null)) },
+            )
+        }
+        Spacer(Modifier.height(spacing.xs))
         FlowLabeledSlider(
             label = "Nivel de audio",
             valueText = "$percent%",

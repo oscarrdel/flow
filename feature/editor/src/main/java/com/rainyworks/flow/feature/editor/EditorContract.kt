@@ -128,6 +128,8 @@ sealed interface EditorAction {
 
     /** Color: filter, manual adjustments, curves, HSL and LUT of a clip (or adjustment layer). */
     data class SetColorGrade(val clipId: String, val grade: ColorGrade, val final: Boolean) : EditorAction
+    /** Sets the volume of [clipIds] (every clip with sound when null) to a common loudness. */
+    data class NormalizeVolume(val clipIds: List<String>?) : EditorAction
     /** One-tap color fix from sample frames of the clip. */
     data class AutoColor(val clipId: String) : EditorAction
     /** Copies the grade of [clipId] to every visual clip of the main track. */
