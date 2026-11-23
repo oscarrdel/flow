@@ -77,7 +77,7 @@ enum class GlobalTool { Edit, Audio, Text, Overlay, Stickers, Effects, Filters, 
 /** Tools shown in the bottom bar when a clip is selected. */
 enum class ClipTool {
     Split, Speed, Volume, Transform, Opacity, Duplicate, Delete, Replace, Freeze, Reverse, Crop, Chroma, Mask, Animation,
-    Filters, Adjust, EditText, Blend, AudioEffects, Fades, Extract, Effects, InOut, KenBurns, Beats, AutoCaptions,
+    Filters, Adjust, EditText, Blend, AudioEffects, Fades, Extract, Effects, InOut, KenBurns, Beats, CutToBeats, AutoCaptions,
 }
 
 sealed interface EditorAction {

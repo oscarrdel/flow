@@ -197,6 +197,7 @@ private val VisualOnlyTools = setOf(
 
 private val TimedOnlyTools = setOf(
     ClipTool.Beats,
+    ClipTool.CutToBeats,
     ClipTool.AutoCaptions,
     ClipTool.Speed,
     ClipTool.Reverse,
@@ -209,6 +210,7 @@ private val TimedOnlyTools = setOf(
 
 private val AudioClipTools = setOf(
     ClipTool.Beats,
+    ClipTool.CutToBeats,
     ClipTool.AutoCaptions,
     ClipTool.AudioEffects,
     ClipTool.Fades,
@@ -306,6 +308,7 @@ private fun ClipTool.spanishLabel(): String = when (this) {
     ClipTool.InOut -> "Entrada/Salida"
     ClipTool.KenBurns -> "Ken Burns"
     ClipTool.Beats -> "Ritmo"
+    ClipTool.CutToBeats -> "Cortar al ritmo"
     ClipTool.AutoCaptions -> "Subtítulos auto"
 }
 
@@ -335,5 +338,6 @@ private fun ClipTool.icon(): ImageVector = when (this) {
     ClipTool.InOut -> Icons.Rounded.Animation
     ClipTool.KenBurns -> Icons.Rounded.ZoomIn
     ClipTool.Beats -> Icons.Rounded.GraphicEq
+    ClipTool.CutToBeats -> Icons.Rounded.ContentCut
     ClipTool.AutoCaptions -> Icons.Rounded.ClosedCaption
 }

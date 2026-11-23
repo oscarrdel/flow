@@ -259,6 +259,31 @@ object Edits {
         return project.copy(markers = (kept + added).sortedBy { it.timeUs })
     }
 
+    /** Shortest clip [fitToBeats] makes, so fast songs skip beats instead of flashing. */
+    const val MIN_BEAT_CLIP_US = 700_000L
+
+    /**
+     * Makes every main-track clip end on a beat marker: the first beat at least
+     * [MIN_BEAT_CLIP_US] after its start (or, when the media is too short to reach it, the
+     * last beat it can reach). Photos take any length; videos only use footage they have.
+     * Clips with no reachable beat keep their length.
+     */
+    fun fitToBeats(project: Project): Project {
+        val beats = project.markers.filter { it.label == BEAT_MARKER_LABEL }.map { it.timeUs }.sorted()
+        if (beats.isEmpty()) return project
+        var result = project
+        for (id in project.mainTrack.clips.map { it.id }) {
+            // Starts move as earlier clips change, so read the current layout each time.
+            val (track, clip) = result.findClip(id) ?: continue
+            if (track.locked) continue
+            val maxEnd = clip.endUs + maxExtensionAtEnd(clip)
+            val reachable = beats.filter { it >= clip.startUs + MIN_BEAT_CLIP_US && it <= maxEnd }
+            val target = reachable.firstOrNull() ?: continue
+            result = trimEnd(result, id, target)
+        }
+        return result
+    }
+
     fun removeMarker(project: Project, markerId: String): Project =
         project.copy(markers = project.markers.filterNot { it.id == markerId })
 

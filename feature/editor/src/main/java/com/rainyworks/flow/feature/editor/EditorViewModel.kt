@@ -460,7 +460,26 @@ class EditorViewModel(
         }
     }
 
-    private fun detectBeats(clipId: String) {
+    /** Main-track cuts land on the music's beats, finding them first if needed. */
+    private fun cutToBeats(clipId: String) {
+        val project = history?.present ?: return
+        if (project.markers.none { it.label == Edits.BEAT_MARKER_LABEL }) {
+            detectBeats(clipId, thenCut = true)
+            return
+        }
+        applyCutToBeats()
+    }
+
+    private fun applyCutToBeats() {
+        val project = history?.present ?: return
+        val fitted = Edits.fitToBeats(project)
+        if (fitted == project) notify(strings.nothingToCut) else {
+            apply(fitted)
+            notify(strings.cutToBeats)
+        }
+    }
+
+    private fun detectBeats(clipId: String, thenCut: Boolean = false) {
         val detect = beats ?: return
         val media = history?.present?.findClip(clipId)?.second?.media?.takeIf { it.hasAudio || it.type == MediaType.AUDIO } ?: return
         if (taskJob?.isActive == true) return
@@ -487,7 +506,7 @@ class EditorViewModel(
                 notify(strings.noBeatsFound)
             } else {
                 apply(updated)
-                notify(strings.beatsFound.format(added))
+                if (thenCut) applyCutToBeats() else notify(strings.beatsFound.format(added))
             }
         }
     }
@@ -905,6 +924,7 @@ class EditorViewModel(
             ClipTool.InOut -> _state.update { it.copy(activeSheet = EditorSheet.InOut) }
             ClipTool.KenBurns -> _state.update { it.copy(activeSheet = EditorSheet.KenBurns) }
             ClipTool.Beats -> detectBeats(clipId)
+            ClipTool.CutToBeats -> cutToBeats(clipId)
             ClipTool.AutoCaptions -> autoCaptions(clipId)
             ClipTool.Reverse -> reverseClip(clipId)
             ClipTool.Duplicate -> apply(Edits.duplicate(project, clipId))
@@ -1066,6 +1086,8 @@ data class EditorStrings(
     val captionsFailed: String = "No se pudieron generar los subtítulos",
     val autoColorFailed: String = "No se pudo analizar el clip",
     val normalizing: String = "Igualando el volumen…",
+    val cutToBeats: String = "Los cortes ahora caen en el ritmo",
+    val nothingToCut: String = "No hay golpes alcanzables para los clips de la pista principal",
     val noAudioToNormalize: String = "No hay clips con sonido",
     /** Format string with one %d for the number of clips. */
     val normalized: String = "Volumen igualado en %d clips",
