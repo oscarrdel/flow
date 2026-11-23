@@ -768,6 +768,45 @@ private fun DrawScope.drawTransitionIcon(type: String, color: Color) {
             drawLine(color = color, start = Offset(cx - d, cy - d), end = Offset(cx + d, cy + d), strokeWidth = strokeWidth * 0.85f)
             drawLine(color = color, start = Offset(cx - d, cy + d), end = Offset(cx + d, cy - d), strokeWidth = strokeWidth * 0.85f)
         }
+        "iris" -> {
+            drawCircle(color = color.copy(alpha = 0.28f), radius = w * 0.3f, center = Offset(cx, cy))
+            drawCircle(color = color, radius = w * 0.3f, center = Offset(cx, cy), style = stroke)
+        }
+        "blur" -> {
+            for (i in 0..2) {
+                drawCircle(color = color.copy(alpha = 0.18f + 0.18f * i), radius = w * (0.38f - 0.1f * i), center = Offset(cx, cy))
+            }
+        }
+        "pixelate" -> {
+            val cell = (w - 2f * pad) / 4f
+            for (i in 0 until 4) for (j in 0 until 3) {
+                if ((i + j) % 2 == 0) drawRect(
+                    color = color.copy(alpha = 0.55f),
+                    topLeft = Offset(pad + i * cell, pad + j * cell),
+                    size = Size(cell, cell),
+                )
+            }
+        }
+        "wipe.diagonal" -> {
+            val tri = Path().apply {
+                moveTo(pad, pad)
+                lineTo(w - pad, pad)
+                lineTo(pad, h - pad)
+                close()
+            }
+            drawPath(path = tri, color = color.copy(alpha = 0.28f))
+            drawLine(color = color, start = Offset(w - pad, pad), end = Offset(pad, h - pad), strokeWidth = strokeWidth)
+        }
+        "heart" -> {
+            val s = w * 0.3f
+            val heart = Path().apply {
+                moveTo(cx, cy + s)
+                cubicTo(cx - s * 1.6f, cy, cx - s * 0.7f, cy - s * 1.2f, cx, cy - s * 0.4f)
+                cubicTo(cx + s * 0.7f, cy - s * 1.2f, cx + s * 1.6f, cy, cx, cy + s)
+                close()
+            }
+            drawPath(path = heart, color = color)
+        }
         else -> {
             val bowtie = Path().apply {
                 moveTo(pad, pad)

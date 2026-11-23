@@ -90,6 +90,11 @@ object TransitionCatalog {
         TransitionDefinition("spin", "Giro"),
         TransitionDefinition("glitch", "Glitch"),
         TransitionDefinition("flash", "Destello"),
+        TransitionDefinition("iris", "Iris"),
+        TransitionDefinition("blur", "Desenfoque"),
+        TransitionDefinition("pixelate", "Pixelado"),
+        TransitionDefinition("wipe.diagonal", "Barrido diagonal"),
+        TransitionDefinition("heart", "Corazón"),
     )
 
     const val MIN_DURATION_US = 100_000L

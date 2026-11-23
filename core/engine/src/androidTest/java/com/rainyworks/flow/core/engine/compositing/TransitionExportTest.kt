@@ -87,6 +87,19 @@ class TransitionExportTest {
     }
 
     @Test
+    fun newTransitionsCompileAndGoFromOutgoingToIncoming() {
+        for (type in listOf("iris", "blur", "pixelate", "wipe.diagonal", "heart")) {
+            // red [0,2), blue [1,3): the window is [1,2).
+            val video = render(project(type))
+            val start = centerColor(video, 1_030_000)
+            val end = centerColor(video, 1_970_000)
+            assertTrue("$type start ${Integer.toHexString(start)}", Color.red(start) > 150 && Color.blue(start) < 100)
+            assertTrue("$type end ${Integer.toHexString(end)}", Color.blue(end) > 150 && Color.red(end) < 100)
+            video.delete()
+        }
+    }
+
+    @Test
     fun cropKeepsOnlyTheSelectedPart() {
         // Left half red, right half blue; keeping the left half must show only red.
         val file = File(context.cacheDir, "halves.png")
